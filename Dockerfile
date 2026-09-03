@@ -16,11 +16,11 @@ USER gt06
 
 ENV GT06_PORT=5023 \
     GT06_HOST=0.0.0.0 \
-    WEB_PORT=8083 \
+    WEB_PORT=8080 \
     WEB_HOST=0.0.0.0 \
     NODE_ENV=production
 
-EXPOSE 5023 8083
+EXPOSE 5023 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD node src/healthcheck.js

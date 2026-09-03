@@ -6,11 +6,11 @@ services:
     restart: unless-stopped
     ports:
       - "${GT06_PORT:-5023}:5023"
-      - "${WEB_PORT:-8083}:8080"
+      - "${WEB_PORT:-8083}:8080" # host:container -- ganti angka kiri saja untuk ubah port host
     environment:
       GT06_PORT: "5023"
       GT06_HOST: "0.0.0.0"
-      WEB_PORT: "8083"
+      WEB_PORT: "8080" # port INTERNAL container, jangan diubah -- port host diatur lewat ports: di atas
       WEB_HOST: "0.0.0.0"
       NODE_ENV: production
     logging:

@@ -36,11 +36,15 @@ const server = net.createServer((socket) => {
 
   let buffer = Buffer.alloc(0);
   let imei = null;
+  let hasData = false; // pembeda koneksi device asli vs probe kosong (mis. Docker healthcheck)
   const remote = `${socket.remoteAddress}:${socket.remotePort}`;
 
-  log('info', `[+] Koneksi baru dari ${remote}`);
-
   socket.on('data', (chunk) => {
+    if (!hasData) {
+      hasData = true;
+      log('info', `[+] Koneksi baru dari ${remote}`);
+    }
+
     buffer = Buffer.concat([buffer, chunk]);
 
     const { frames, rest } = splitFrames(buffer);
@@ -65,8 +69,10 @@ const server = net.createServer((socket) => {
   });
 
   socket.on('close', () => {
-    log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
-    if (imei) updateDevice(imei, { connected: false });
+    if (hasData) {
+      log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
+      if (imei) updateDevice(imei, { connected: false });
+    }
   });
 
   socket.on('error', (err) => {
