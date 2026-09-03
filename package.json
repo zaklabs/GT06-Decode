@@ -1,0 +1,11 @@
+{
+  "name": "gt06-decode",
+  "version": "1.0.0",
+  "description": "TCP server + parser untuk perangkat GPS tracker protokol GT06 (Concox)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "example": "node examples/decode-sample.js"
+  },
+  "license": "MIT"
+}

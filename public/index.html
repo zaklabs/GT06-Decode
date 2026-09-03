@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GT06 Server Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #11161d;
+    --border: #232b36;
+    --text: #d7dee7;
+    --muted: #7d8a9c;
+    --green: #3fb950;
+    --cyan: #58c4dc;
+    --yellow: #d2a83f;
+    --red: #f0596a;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--red);
+    box-shadow: 0 0 6px var(--red); transition: background .2s, box-shadow .2s;
+  }
+  .status-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-label { font-size: 12px; color: var(--muted); }
+  .spacer { flex: 1; }
+  .stat { font-size: 12px; color: var(--muted); margin-left: 14px; }
+  .stat b { color: var(--text); font-weight: 600; }
+
+  main {
+    display: grid; grid-template-columns: 1.4fr 1fr;
+    height: calc(100% - 49px); gap: 0;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } }
+
+  section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+  section:last-child { border-right: none; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    flex-wrap: wrap;
+  }
+  .toolbar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 10px 0 0; font-weight: 600; }
+  button.filter {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer;
+  }
+  button.filter.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+  button.filter:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+  .toolbar .right { margin-left: auto; display: flex; gap: 6px; }
+
+  #log {
+    flex: 1; overflow-y: auto; padding: 8px 0; font-family: "SF Mono", Consolas, "Courier New", monospace;
+    font-size: 12.5px; line-height: 1.55;
+  }
+  .line { padding: 1px 14px; white-space: pre-wrap; word-break: break-all; }
+  .line:hover { background: rgba(255,255,255,0.03); }
+  .line .ts { color: var(--muted); margin-right: 8px; }
+  .line.login { color: var(--green); }
+  .line.gps { color: var(--cyan); }
+  .line.heartbeat { color: var(--muted); }
+  .line.alarm { color: var(--red); font-weight: 600; }
+  .line.error { color: var(--red); }
+  .line.warn { color: var(--yellow); }
+  .line.info { color: var(--text); }
+
+  #devices { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    position: sticky; top: 0; background: var(--panel); text-align: left;
+    padding: 8px 10px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border);
+    text-transform: uppercase; font-size: 10.5px; letter-spacing: .4px;
+  }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  .dev-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+  .dev-dot.on { background: var(--green); }
+  .imei { font-family: monospace; color: var(--text); }
+  .muted { color: var(--muted); }
+  a.maplink { color: var(--accent); text-decoration: none; }
+  a.maplink:hover { text-decoration: underline; }
+  .empty { padding: 20px; color: var(--muted); font-size: 12.5px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <span id="statusDot" class="status-dot"></span>
+  <h1>GT06 Server Dashboard</h1>
+  <span id="statusLabel" class="status-label">menghubungkan...</span>
+  <div class="spacer"></div>
+  <span class="stat">Device: <b id="statDevices">0</b></span>
+  <span class="stat">Online: <b id="statOnline">0</b></span>
+</header>
+
+<main>
+  <section>
+    <div class="toolbar">
+      <h2>Log</h2>
+      <button class="filter active" data-filter="all">Semua</button>
+      <button class="filter" data-filter="login">Login</button>
+      <button class="filter" data-filter="gps">GPS</button>
+      <button class="filter" data-filter="heartbeat">Heartbeat</button>
+      <button class="filter" data-filter="alarm">Alarm</button>
+      <button class="filter" data-filter="error">Error/Warn</button>
+      <div class="right">
+        <button class="filter" id="autoscrollBtn">Auto-scroll: ON</button>
+        <button class="filter" id="clearBtn">Bersihkan</button>
+      </div>
+    </div>
+    <div id="log"></div>
+  </section>
+
+  <section>
+    <div class="toolbar"><h2>Devices</h2></div>
+    <div id="devices">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th>IMEI</th><th>Posisi</th><th>Speed</th><th>Volt</th><th>GSM</th><th>Terakhir</th>
+          </tr>
+        </thead>
+        <tbody id="deviceRows"></tbody>
+      </table>
+      <div id="emptyDevices" class="empty">Belum ada device yang terhubung.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var logEl = document.getElementById('log');
+  var statusDot = document.getElementById('statusDot');
+  var statusLabel = document.getElementById('statusLabel');
+  var deviceRows = document.getElementById('deviceRows');
+  var emptyDevices = document.getElementById('emptyDevices');
+  var statDevices = document.getElementById('statDevices');
+  var statOnline = document.getElementById('statOnline');
+  var autoscrollBtn = document.getElementById('autoscrollBtn');
+  var clearBtn = document.getElementById('clearBtn');
+
+  var autoscroll = true;
+  var currentFilter = 'all';
+  var devices = {};
+  var MAX_LINES = 1000;
+
+  function classify(message) {
+    if (/^\[LOGIN\]/.test(message)) return 'login';
+    if (/^\[GPS\]/.test(message)) return 'gps';
+    if (/^\[HEARTBEAT\]/.test(message)) return 'heartbeat';
+    if (/^\[ALARM\]/.test(message)) return 'alarm';
+    return null;
+  }
+
+  function matchesFilter(tag, level) {
+    if (currentFilter === 'all') return true;
+    if (currentFilter === 'error') return level === 'error' || level === 'warn';
+    return tag === currentFilter;
+  }
+
+  function appendLog(entry) {
+    var tag = classify(entry.message) || 'info';
+    var cls = tag === 'info' ? entry.level : tag;
+
+    var div = document.createElement('div');
+    div.className = 'line ' + cls;
+    div.dataset.tag = tag;
+    div.dataset.level = entry.level;
+
+    var time = new Date(entry.ts).toLocaleTimeString('id-ID', { hour12: false });
+    div.innerHTML = '<span class="ts">' + time + '</span>' + escapeHtml(entry.message);
+
+    if (!matchesFilter(tag, entry.level)) div.style.display = 'none';
+
+    logEl.appendChild(div);
+    while (logEl.children.length > MAX_LINES) logEl.removeChild(logEl.firstChild);
+    if (autoscroll) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; });
+  }
+
+  function fmtCoord(v) { return typeof v === 'number' ? v.toFixed(6) : '-'; }
+
+  function renderDevices() {
+    var list = Object.values(devices).sort(function (a, b) {
+      return new Date(b.lastSeen) - new Date(a.lastSeen);
+    });
+
+    statDevices.textContent = list.length;
+    statOnline.textContent = list.filter(function (d) { return d.connected; }).length;
+
+    if (list.length === 0) {
+      deviceRows.innerHTML = '';
+      emptyDevices.style.display = 'block';
+      return;
+    }
+    emptyDevices.style.display = 'none';
+
+    deviceRows.innerHTML = list.map(function (d) {
+      var hasPos = typeof d.latitude === 'number' && typeof d.longitude === 'number';
+      var posHtml = hasPos
+        ? '<a class="maplink" target="_blank" rel="noopener" href="https://www.google.com/maps?q=' + d.latitude + ',' + d.longitude + '">' + fmtCoord(d.latitude) + ', ' + fmtCoord(d.longitude) + '</a>'
+        : '<span class="muted">-</span>';
+      var lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString('id-ID', { hour12: false }) : '-';
+      return '<tr>' +
+        '<td><span class="dev-dot ' + (d.connected ? 'on' : '') + '"></span></td>' +
+        '<td class="imei">' + (d.imei || '-') + '</td>' +
+        '<td>' + posHtml + '</td>' +
+        '<td>' + (typeof d.speed === 'number' ? d.speed + ' km/h' : '<span class="muted">-</span>') + '</td>' +
+        '<td>' + (typeof d.voltageLevel === 'number' ? d.voltageLevel + '/6' : '<span class="muted">-</span>') + '</td>' +
+        '<td>' + (typeof d.gsmSignalStrength === 'number' ? d.gsmSignalStrength + '/4' : '<span class="muted">-</span>') + '</td>' +
+        '<td class="muted">' + lastSeen + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function applyFilter() {
+    Array.prototype.forEach.call(logEl.children, function (div) {
+      div.style.display = matchesFilter(div.dataset.tag, div.dataset.level) ? '' : 'none';
+    });
+  }
+
+  document.querySelectorAll('button.filter[data-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('button.filter[data-filter]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      applyFilter();
+    });
+  });
+
+  autoscrollBtn.addEventListener('click', function () {
+    autoscroll = !autoscroll;
+    autoscrollBtn.textContent = 'Auto-scroll: ' + (autoscroll ? 'ON' : 'OFF');
+    autoscrollBtn.classList.toggle('active', autoscroll);
+    if (autoscroll) logEl.scrollTop = logEl.scrollHeight;
+  });
+  autoscrollBtn.classList.add('active');
+
+  clearBtn.addEventListener('click', function () { logEl.innerHTML = ''; });
+
+  function connect() {
+    var es = new EventSource('/api/events');
+
+    es.onopen = function () {
+      statusDot.classList.add('on');
+      statusLabel.textContent = 'terhubung';
+    };
+
+    es.addEventListener('log', function (e) {
+      appendLog(JSON.parse(e.data));
+    });
+
+    es.addEventListener('device', function (e) {
+      var d = JSON.parse(e.data);
+      devices[d.imei] = d;
+      renderDevices();
+    });
+
+    es.onerror = function () {
+      statusDot.classList.remove('on');
+      statusLabel.textContent = 'terputus, mencoba lagi...';
+    };
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
