@@ -10,7 +10,7 @@ services:
     environment:
       GT06_PORT: "5023"
       GT06_HOST: "0.0.0.0"
-      WEB_PORT: "8080"
+      WEB_PORT: "8083"
       WEB_HOST: "0.0.0.0"
       NODE_ENV: production
     logging:
