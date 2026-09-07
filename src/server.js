@@ -166,6 +166,7 @@ server.listen(PORT, HOST, () => {
 
 require('./web').start();
 db.startRetentionSchedule();
+require('./backup').startBackupSchedule();
 
 function shutdown(signal) {
   log('info', `[i] Menerima ${signal}, menutup server...`);

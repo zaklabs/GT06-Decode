@@ -3,7 +3,19 @@
 const { Pool } = require('pg');
 const { log } = require('./logger');
 
-const RETENTION_DAYS = process.env.RETENTION_DAYS ? Number(process.env.RETENTION_DAYS) : 90;
+const UNIT_TO_PG_INTERVAL = { d: 'days', w: 'weeks', m: 'months', y: 'years' };
+
+/** Parse format "90d" / "12w" / "3m" / "1y" jadi interval PostgreSQL, mis. "90 days". */
+function parseRetention(value) {
+  const match = /^(\d+)\s*(d|w|m|y)$/i.exec(String(value).trim());
+  if (!match) {
+    log('warn', `[DB] Format RETENTION "${value}" tidak dikenali, pakai default 90d`);
+    return '90 days';
+  }
+  return `${match[1]} ${UNIT_TO_PG_INTERVAL[match[2].toLowerCase()]}`;
+}
+
+const RETENTION_INTERVAL = parseRetention(process.env.RETENTION || '90d');
 
 const pool = new Pool({
   host: process.env.PGHOST || 'localhost',
@@ -60,23 +72,24 @@ async function recordPosition({ imei, latitude, longitude, speed, course, record
   }
 }
 
-async function pruneOldPositions(retentionDays) {
+async function pruneOldPositions() {
   const result = await pool.query(
-    `DELETE FROM positions WHERE recorded_at < now() - ($1 || ' days')::interval`,
-    [retentionDays]
+    `DELETE FROM positions WHERE recorded_at < now() - $1::interval`,
+    [RETENTION_INTERVAL]
   );
   return result.rowCount;
 }
 
 function startRetentionSchedule() {
   const run = () => {
-    pruneOldPositions(RETENTION_DAYS)
+    pruneOldPositions()
       .then((count) => {
-        if (count > 0) log('info', `[DB] Retensi: hapus ${count} baris posisi lebih dari ${RETENTION_DAYS} hari`);
+        if (count > 0) log('info', `[DB] Retensi: hapus ${count} baris posisi lebih lama dari ${RETENTION_INTERVAL}`);
       })
       .catch((err) => log('error', `[DB] Gagal jalankan retensi: ${err.message}`));
   };
 
+  log('info', `[DB] Retensi posisi: ${RETENTION_INTERVAL} (cek tiap 24 jam)`);
   run(); // jalankan sekali saat startup, lalu tiap 24 jam
   setInterval(run, 24 * 60 * 60 * 1000).unref();
 }
@@ -88,5 +101,5 @@ module.exports = {
   recordPosition,
   pruneOldPositions,
   startRetentionSchedule,
-  RETENTION_DAYS,
+  RETENTION_INTERVAL,
 };

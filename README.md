@@ -94,7 +94,10 @@ npm run example
 | `PGDATABASE` | `gt06`      | Nama database                             |
 | `PGUSER`     | `gt06`      | User PostgreSQL                           |
 | `PGPASSWORD` | *(wajib diisi)* | Password PostgreSQL — isi lewat file `.env`, jangan hardcode |
-| `RETENTION_DAYS` | `90`    | Data di tabel `positions` lebih tua dari ini dihapus otomatis tiap hari |
+| `RETENTION`  | `90d`       | Retensi data `positions`. Format `<angka>d/w/m/y` (hari/minggu/bulan/tahun), contoh `90d`, `12w`, `3m`, `1y` |
+| `BACKUP`     | `monthly`   | Jadwal backup database: `daily` / `weekly` / `monthly` / `off` |
+| `BACKUP_KEEP`| `6`         | Jumlah file backup terakhir yang disimpan (lebih lama dari ini otomatis dihapus) |
+| `BACKUP_DIR` | `/backups`  | Folder penyimpanan file backup di dalam container (di-mount ke volume `pgbackups`) |
 
 Untuk `docker-compose.yml`, port host bisa diubah lewat env di luar container, contoh:
 
@@ -143,14 +146,24 @@ Dua tabel (lihat [db/schema.sql](db/schema.sql)):
 - **`devices`** — 1 baris per device, state TERKINI (posisi, kecepatan, status online, terakhir dilihat). Dipakai aplikasi dashboard/peta terpisah untuk render marker.
 - **`positions`** — riwayat posisi, append-only. Dipakai untuk gambar rute/playback di peta.
 
-**Retensi otomatis:** baris `positions` yang `recorded_at`-nya lebih tua dari `RETENTION_DAYS` (default 90 hari) dihapus otomatis tiap 24 jam (jalan juga sekali saat server baru start). Tabel `devices` tidak kena retensi karena cuma menyimpan state terkini, tidak menumpuk.
+**Retensi otomatis** ([src/db.js](src/db.js)): baris `positions` yang `recorded_at`-nya lebih tua dari `RETENTION` (default `90d`) dihapus otomatis, dicek tiap 24 jam (jalan juga sekali saat server baru start). Format `RETENTION`: angka + satuan `d`/`w`/`m`/`y` (hari/minggu/bulan/tahun) — contoh `90d`, `12w`, `3m`, `1y`. Tabel `devices` tidak kena retensi karena cuma menyimpan state terkini, tidak menumpuk.
 
-**Backup:** retensi di atas hanya mengatur data *live*. Backup periodik (`pg_dump` terjadwal, disimpan di lokasi terpisah dari server) belum termasuk di setup ini — akan ditambahkan sebagai langkah terpisah.
+**Backup otomatis** ([src/backup.js](src/backup.js)): `pg_dump` terjadwal sesuai `BACKUP` (`daily`/`weekly`/`monthly`/`off`, default `monthly`), dijalankan otomatis setelah jam 03:00 waktu container di hari/minggu/bulan yang belum kebagian backup. File disimpan di volume `pgbackups` (path `/backups` di dalam container) dengan format `gt06-<database>-<timestamp>.dump`, dan hanya `BACKUP_KEEP` file terakhir yang disimpan (default `6`) — lebih lama dari itu otomatis dihapus.
 
-Contoh cek data langsung dari database:
+> Catatan: pengecekan jadwal jalan tiap jam (bukan menghitung mundur presis ke tanggal target), jadi kalau server sempat mati pas jadwalnya lewat, backup akan otomatis "menyusul" di jam berikutnya setelah server nyala lagi — tidak akan terlewat begitu saja.
+
+Contoh cek data & backup langsung dari container:
 ```bash
+# Lihat isi tabel
 docker compose exec postgres psql -U gt06 -d gt06 -c "SELECT * FROM devices;"
 docker compose exec postgres psql -U gt06 -d gt06 -c "SELECT * FROM positions ORDER BY id DESC LIMIT 10;"
+
+# Lihat file backup yang tersimpan
+docker compose exec gt06-server ls -la /backups
+
+# Restore manual dari file backup (dijalankan dari container gt06-server,
+# karena situ tempat file /backups & pg_restore ter-mount, terhubung ke postgres lewat jaringan)
+docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean --if-exists /backups/NAMA_FILE.dump
 ```
 
 ## Catatan pengembangan

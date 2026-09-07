@@ -43,7 +43,12 @@ services:
       PGDATABASE: ${PGDATABASE:-gt06}
       PGUSER: ${PGUSER:-gt06}
       PGPASSWORD: ${PGPASSWORD:?Set PGPASSWORD di file .env}
-      RETENTION_DAYS: "90"
+      RETENTION: ${RETENTION:-90d}       # format: <angka>d/w/m/y -- contoh 90d, 12w, 3m, 1y
+      BACKUP: ${BACKUP:-monthly}         # daily / weekly / monthly / off
+      BACKUP_KEEP: ${BACKUP_KEEP:-6}     # jumlah file backup terakhir yang disimpan
+      BACKUP_DIR: /backups
+    volumes:
+      - pgbackups:/backups
     logging:
       driver: json-file
       options:
@@ -58,3 +63,4 @@ services:
 
 volumes:
   pgdata:
+  pgbackups:
