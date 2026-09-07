@@ -59,7 +59,7 @@ latLonBuf.writeUInt32BE(latRaw, 0);
 latLonBuf.writeUInt32BE(lonRaw, 4);
 const speed = Buffer.from([40]); // 40 km/h
 const courseStatus = Buffer.alloc(2);
-courseStatus.writeUInt16BE(0x8000 | 90); // GPS fixed, course 90 derajat, N/E
+courseStatus.writeUInt16BE(0x1000 | 0x0400 | 90); // GPS fixed (bit12), Utara (bit10), course 90 derajat
 const lbs = Buffer.alloc(8);
 lbs.writeUInt16BE(510, 0); // MCC Indonesia
 lbs.writeUInt8(10, 2); // MNC

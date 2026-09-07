@@ -182,15 +182,17 @@ function decodeGpsLbs(content) {
   const courseStatus = content.readUInt16BE(offset);
   offset += 2;
 
-  const gpsFixed = !!(courseStatus & 0x8000);
-  const isSouth = !!(courseStatus & 0x0800);
-  const isWest = !!(courseStatus & 0x0400);
-  const realtimeGps = !!(courseStatus & 0x0200);
-  const course = courseStatus & 0x01ff;
+  // Bit 12: GPS fixed/valid. Bit 11: Timur/Barat (1=Barat). Bit 10: Utara/Selatan (1=Utara, 0=Selatan).
+  // Bit 9-0: course (10 bit). Layout ini diverifikasi dari data device asli (lat/lon terbalik
+  // sebelum perbaikan ini karena bit N/S dan E/W sebelumnya tertukar).
+  const gpsFixed = !!(courseStatus & 0x1000);
+  const isNorth = !!(courseStatus & 0x0400);
+  const isWest = !!(courseStatus & 0x0800);
+  const course = courseStatus & 0x03ff;
 
   let latitude = latRaw / 30000 / 60;
   let longitude = lonRaw / 30000 / 60;
-  if (isSouth) latitude = -latitude;
+  if (!isNorth) latitude = -latitude;
   if (isWest) longitude = -longitude;
 
   const result = {
@@ -201,7 +203,6 @@ function decodeGpsLbs(content) {
     speed,
     course,
     gpsFixed,
-    realtimeGps,
   };
 
   // Sisa data opsional: LBS (MCC/MNC/LAC/CellId), umum di 0x12/0x18/0x22

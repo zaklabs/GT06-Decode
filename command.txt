@@ -1,0 +1,2 @@
+simulasi kirim data
+node examples/simulate-device.js --host 10.81.81.16 --port 5023 --interval 3
