@@ -3,7 +3,9 @@ FROM node:22-alpine
 WORKDIR /app
 
 # pg_dump dipakai untuk backup terjadwal (lihat src/backup.js)
-RUN apk add --no-cache postgresql16-client
+# tzdata dipakai supaya TZ di bawah benar-benar berlaku (Alpine gak punya timezone data bawaan)
+RUN apk add --no-cache postgresql16-client tzdata
+ENV TZ=Asia/Jakarta
 
 COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
