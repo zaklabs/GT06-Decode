@@ -33,8 +33,13 @@ function getHistory() {
   return history;
 }
 
+function clearHistory() {
+  history.length = 0;
+  bus.emit('clear');
+}
+
 function getDevices() {
   return Array.from(devices.values());
 }
 
-module.exports = { bus, log, updateDevice, getHistory, getDevices };
+module.exports = { bus, log, updateDevice, getHistory, clearHistory, getDevices };

@@ -3,7 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { bus, log, getHistory, getDevices } = require('./logger');
+const { bus, log, getHistory, clearHistory, getDevices } = require('./logger');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -12,6 +12,13 @@ const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 
 function start() {
   const server = http.createServer((req, res) => {
+    if (req.method === 'DELETE' && req.url === '/api/logs') {
+      clearHistory();
+      log('info', '[i] Log dashboard direset lewat web UI');
+      res.writeHead(204).end();
+      return;
+    }
+
     if (req.method !== 'GET') {
       res.writeHead(405).end();
       return;
@@ -53,9 +60,11 @@ function start() {
 
       const onLog = (entry) => res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
       const onDevice = (device) => res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
+      const onClear = () => res.write('event: clear\ndata: {}\n\n');
 
       bus.on('log', onLog);
       bus.on('device', onDevice);
+      bus.on('clear', onClear);
 
       const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
 
@@ -63,6 +72,7 @@ function start() {
         clearInterval(keepAlive);
         bus.off('log', onLog);
         bus.off('device', onDevice);
+        bus.off('clear', onClear);
       });
       return;
     }

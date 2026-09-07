@@ -1,9 +1,34 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gt06-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-gt06}
+      POSTGRES_USER: ${PGUSER:-gt06}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?Set PGPASSWORD di file .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-gt06} -d ${PGDATABASE:-gt06}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   gt06-server:
     build: .
     image: gt06-decode:latest
     container_name: gt06-server
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${GT06_PORT:-5023}:5023"
       - "${WEB_PORT:-8083}:8080" # host:container -- ganti angka kiri saja untuk ubah port host
@@ -13,6 +38,12 @@ services:
       WEB_PORT: "8080" # port INTERNAL container, jangan diubah -- port host diatur lewat ports: di atas
       WEB_HOST: "0.0.0.0"
       NODE_ENV: production
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-gt06}
+      PGUSER: ${PGUSER:-gt06}
+      PGPASSWORD: ${PGPASSWORD:?Set PGPASSWORD di file .env}
+      RETENTION_DAYS: "90"
     logging:
       driver: json-file
       options:
@@ -24,3 +55,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+volumes:
+  pgdata:

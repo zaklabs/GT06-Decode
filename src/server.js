@@ -4,6 +4,7 @@ const net = require('net');
 const { crc16X25 } = require('./crc');
 const { splitFrames, decodeFrame, PROTOCOL } = require('./parser');
 const { log, updateDevice } = require('./logger');
+const db = require('./db');
 
 const PORT = process.env.GT06_PORT ? Number(process.env.GT06_PORT) : 5023;
 const HOST = process.env.GT06_HOST || '0.0.0.0';
@@ -71,7 +72,10 @@ const server = net.createServer((socket) => {
   socket.on('close', () => {
     if (hasData) {
       log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
-      if (imei) updateDevice(imei, { connected: false });
+      if (imei) {
+        updateDevice(imei, { connected: false });
+        db.setDeviceOffline(imei).catch((err) => log('error', `[DB] Gagal update status offline ${imei}: ${err.message}`));
+      }
     }
   });
 
@@ -88,13 +92,17 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
       setImei(data.imei);
       log('info', `[LOGIN] ${remote} imei=${data.imei} serial=${serialNumber}`);
       updateDevice(data.imei, { ip: remote, connected: true });
+      db.touchDevice(data.imei).catch((err) => log('error', `[DB] Gagal simpan login ${data.imei}: ${err.message}`));
       socket.write(buildAck(PROTOCOL.LOGIN, serialNumber));
       break;
     }
 
     case PROTOCOL.STATUS_HEARTBEAT: {
       log('info', `[HEARTBEAT] ${remote} imei=${getImei()} voltage=${data.voltageLevel} gsm=${data.gsmSignalStrength}`);
-      if (getImei()) updateDevice(getImei(), { connected: true, voltageLevel: data.voltageLevel, gsmSignalStrength: data.gsmSignalStrength });
+      if (getImei()) {
+        updateDevice(getImei(), { connected: true, voltageLevel: data.voltageLevel, gsmSignalStrength: data.gsmSignalStrength });
+        db.touchDevice(getImei()).catch((err) => log('error', `[DB] Gagal simpan heartbeat ${getImei()}: ${err.message}`));
+      }
       socket.write(buildAck(PROTOCOL.STATUS_HEARTBEAT, serialNumber));
       break;
     }
@@ -112,6 +120,14 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
           course: data.course,
           gpsTimestamp: data.timestamp.toISOString(),
         });
+        db.recordPosition({
+          imei: getImei(),
+          latitude: data.latitude,
+          longitude: data.longitude,
+          speed: data.speed,
+          course: data.course,
+          recordedAt: data.timestamp,
+        }).catch((err) => log('error', `[DB] Gagal simpan posisi ${getImei()}: ${err.message}`));
       }
       // Paket GPS umumnya tidak wajib di-ACK, tapi beberapa firmware mengharapkannya.
       break;
@@ -119,7 +135,17 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
 
     case PROTOCOL.ALARM: {
       log('warn', `[ALARM] ${remote} imei=${getImei()} lat=${data.latitude} lon=${data.longitude}`);
-      if (getImei()) updateDevice(getImei(), { connected: true, latitude: data.latitude, longitude: data.longitude, lastAlarm: new Date().toISOString() });
+      if (getImei()) {
+        updateDevice(getImei(), { connected: true, latitude: data.latitude, longitude: data.longitude, lastAlarm: new Date().toISOString() });
+        db.recordPosition({
+          imei: getImei(),
+          latitude: data.latitude,
+          longitude: data.longitude,
+          speed: data.speed,
+          course: data.course,
+          recordedAt: data.timestamp,
+        }).catch((err) => log('error', `[DB] Gagal simpan posisi alarm ${getImei()}: ${err.message}`));
+      }
       socket.write(buildAck(PROTOCOL.ALARM, serialNumber));
       break;
     }
@@ -139,6 +165,7 @@ server.listen(PORT, HOST, () => {
 });
 
 require('./web').start();
+db.startRetentionSchedule();
 
 function shutdown(signal) {
   log('info', `[i] Menerima ${signal}, menutup server...`);

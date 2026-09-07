@@ -118,7 +118,7 @@
       <button class="filter" data-filter="error">Error/Warn</button>
       <div class="right">
         <button class="filter" id="autoscrollBtn">Auto-scroll: ON</button>
-        <button class="filter" id="clearBtn">Bersihkan</button>
+        <button class="filter" id="clearBtn" title="Hapus log di server untuk semua orang yang membuka dashboard ini">Hapus Log</button>
       </div>
     </div>
     <div id="log"></div>
@@ -252,7 +252,13 @@
   });
   autoscrollBtn.classList.add('active');
 
-  clearBtn.addEventListener('click', function () { logEl.innerHTML = ''; });
+  clearBtn.addEventListener('click', function () {
+    if (!confirm('Hapus log ini di server? Semua orang yang sedang membuka dashboard ini juga akan melihat log-nya kosong.')) return;
+    clearBtn.disabled = true;
+    fetch('/api/logs', { method: 'DELETE' })
+      .catch(function () { alert('Gagal menghapus log (cek koneksi ke server).'); })
+      .finally(function () { clearBtn.disabled = false; });
+  });
 
   function connect() {
     var es = new EventSource('/api/events');
@@ -270,6 +276,10 @@
       var d = JSON.parse(e.data);
       devices[d.imei] = d;
       renderDevices();
+    });
+
+    es.addEventListener('clear', function () {
+      logEl.innerHTML = '';
     });
 
     es.onerror = function () {
