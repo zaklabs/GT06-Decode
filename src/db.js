@@ -42,7 +42,7 @@ async function setDeviceOffline(imei) {
   await pool.query('UPDATE devices SET is_online = false WHERE imei = $1', [imei]);
 }
 
-async function recordPosition({ imei, latitude, longitude, speed, course, recordedAt }) {
+async function recordPosition({ imei, latitude, longitude, speed, course, recordedAt, voltageLevel, gsmSignalStrength }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -59,9 +59,9 @@ async function recordPosition({ imei, latitude, longitude, speed, course, record
       [imei, latitude, longitude, speed, course]
     );
     await client.query(
-      `INSERT INTO positions (imei, latitude, longitude, speed, course, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [imei, latitude, longitude, speed, course, recordedAt]
+      `INSERT INTO positions (imei, latitude, longitude, speed, course, voltage_level, gsm_signal_strength, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [imei, latitude, longitude, speed, course, voltageLevel ?? null, gsmSignalStrength ?? null, recordedAt]
     );
     await client.query('COMMIT');
   } catch (err) {
@@ -70,6 +70,31 @@ async function recordPosition({ imei, latitude, longitude, speed, course, record
   } finally {
     client.release();
   }
+}
+
+/** Dipakai script reload-devices -- ambil state terakhir semua device dari DB. */
+async function getAllDevices() {
+  const { rows } = await pool.query(
+    `SELECT imei, label, last_latitude AS latitude, last_longitude AS longitude,
+            last_speed AS speed, last_course AS course, last_seen_at AS "lastSeen", is_online
+     FROM devices`
+  );
+  return rows;
+}
+
+/** Riwayat posisi satu device dalam rentang waktu -- dipakai fitur playback rute. */
+async function getPositions({ imei, from, to, limit }) {
+  const { rows } = await pool.query(
+    `SELECT imei, latitude, longitude, speed, course,
+            voltage_level AS "voltageLevel", gsm_signal_strength AS "gsmSignalStrength",
+            recorded_at AS "recordedAt"
+     FROM positions
+     WHERE imei = $1 AND recorded_at >= $2 AND recorded_at <= $3
+     ORDER BY recorded_at ASC
+     LIMIT $4`,
+    [imei, from, to, limit]
+  );
+  return rows;
 }
 
 async function pruneOldPositions() {
@@ -99,6 +124,8 @@ module.exports = {
   touchDevice,
   setDeviceOffline,
   recordPosition,
+  getAllDevices,
+  getPositions,
   pruneOldPositions,
   startRetentionSchedule,
   RETENTION_INTERVAL,

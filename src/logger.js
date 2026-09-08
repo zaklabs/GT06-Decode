@@ -29,6 +29,20 @@ function updateDevice(imei, patch) {
   return updated;
 }
 
+/**
+ * Muat device dari database ke memori TANPA menimpa state live yang sudah ada
+ * (kalau device sedang benar-benar konek) dan TANPA menstempel lastSeen jadi
+ * "sekarang" -- dipakai buat reload data lama/hasil restore, beda dari
+ * updateDevice() yang selalu berarti "baru saja terjadi".
+ */
+function seedDevice(imei, patch) {
+  if (devices.has(imei)) return devices.get(imei);
+  const seeded = { imei, connected: false, ...patch };
+  devices.set(imei, seeded);
+  bus.emit('device', seeded);
+  return seeded;
+}
+
 function getHistory() {
   return history;
 }
@@ -42,4 +56,8 @@ function getDevices() {
   return Array.from(devices.values());
 }
 
-module.exports = { bus, log, updateDevice, getHistory, clearHistory, getDevices };
+function getDevice(imei) {
+  return devices.get(imei) || null;
+}
+
+module.exports = { bus, log, updateDevice, seedDevice, getHistory, clearHistory, getDevices, getDevice };

@@ -3,7 +3,7 @@
 const net = require('net');
 const { crc16X25 } = require('./crc');
 const { splitFrames, decodeFrame, PROTOCOL } = require('./parser');
-const { log, updateDevice } = require('./logger');
+const { log, updateDevice, getDevice } = require('./logger');
 const db = require('./db');
 
 const PORT = process.env.GT06_PORT ? Number(process.env.GT06_PORT) : 5023;
@@ -120,12 +120,17 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
           course: data.course,
           gpsTimestamp: data.timestamp.toISOString(),
         });
+        // Paket GPS tidak membawa voltage/gsm -- ambil nilai terakhir yang diketahui
+        // dari heartbeat (kalau belum pernah ada heartbeat, tersimpan null).
+        const known = getDevice(getImei());
         db.recordPosition({
           imei: getImei(),
           latitude: data.latitude,
           longitude: data.longitude,
           speed: data.speed,
           course: data.course,
+          voltageLevel: known ? known.voltageLevel : null,
+          gsmSignalStrength: known ? known.gsmSignalStrength : null,
           recordedAt: data.timestamp,
         }).catch((err) => log('error', `[DB] Gagal simpan posisi ${getImei()}: ${err.message}`));
       }
@@ -137,12 +142,15 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
       log('warn', `[ALARM] ${remote} imei=${getImei()} lat=${data.latitude} lon=${data.longitude}`);
       if (getImei()) {
         updateDevice(getImei(), { connected: true, latitude: data.latitude, longitude: data.longitude, lastAlarm: new Date().toISOString() });
+        const known = getDevice(getImei());
         db.recordPosition({
           imei: getImei(),
           latitude: data.latitude,
           longitude: data.longitude,
           speed: data.speed,
           course: data.course,
+          voltageLevel: known ? known.voltageLevel : null,
+          gsmSignalStrength: known ? known.gsmSignalStrength : null,
           recordedAt: data.timestamp,
         }).catch((err) => log('error', `[DB] Gagal simpan posisi alarm ${getImei()}: ${err.message}`));
       }

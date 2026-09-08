@@ -12,6 +12,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY src ./src
 COPY public ./public
+COPY scripts ./scripts
 
 # Jalankan sebagai user non-root
 RUN addgroup -S gt06 && adduser -S gt06 -G gt06 \
