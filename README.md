@@ -20,13 +20,14 @@ Server TCP untuk menerima, decode, dan memantau data dari perangkat GPS tracker 
 │   ├── parser.js        # Framing stream TCP + decode isi paket per protokol
 │   ├── server.js         # TCP server, auto-ACK, tracking device
 │   ├── logger.js         # Histori log + event bus untuk dashboard
-│   ├── web.js             # HTTP server + SSE untuk dashboard
+│   ├── web.js             # HTTP server + SSE untuk dashboard + API eksternal
+│   ├── tokens.js          # Buat/verifikasi/hapus token API eksternal
 │   ├── db.js              # Koneksi PostgreSQL + retensi data otomatis
 │   └── healthcheck.js     # Dipakai Docker HEALTHCHECK
 ├── public/
-│   └── index.html         # Halaman dashboard (log terminal + tabel device)
+│   └── index.html         # Halaman dashboard (log terminal + tabel device + tab Akses API)
 ├── db/
-│   └── schema.sql         # Skema tabel `devices` & `positions`, auto-jalan saat container pertama kali dibuat
+│   └── schema.sql         # Skema tabel `devices`, `positions`, `api_tokens` -- auto-jalan saat container pertama kali dibuat
 ├── examples/
 │   ├── decode-sample.js    # Contoh decode paket GT06 secara standalone
 │   └── simulate-device.js  # Simulator device (kirim data ke server manapun)
@@ -115,6 +116,19 @@ Buka `http://IP_SERVER:8080` di browser untuk melihat:
 
 > ⚠️ **Dashboard belum ada autentikasi.** Untuk production, taruh di belakang reverse proxy (nginx/Caddy) dengan basic auth, atau batasi akses port `8080` hanya dari jaringan internal/VPN — jangan expose langsung ke publik karena menampilkan IMEI dan lokasi real-time semua device.
 
+## API eksternal (untuk aplikasi lain, mis. gps-dash)
+
+Tab **"Akses API"** di dashboard web dipakai untuk membuat/menghapus token yang mengizinkan aplikasi lain (bukan browser dashboard ini) mengambil data posisi device tanpa perlu koneksi langsung ke database:
+
+- `GET /api/external/devices` — snapshot JSON semua device saat ini
+- `GET /api/external/events` — SSE, event `device` dikirim realtime tiap ada posisi/status baru (sama seperti yang dipakai dashboard internal, tapi lewat token)
+
+Keduanya wajib header `Authorization: Bearer <token>`, request tanpa token atau dengan token yang salah/sudah dihapus akan dapat `401`.
+
+Token hanya ditampilkan **sekali** saat dibuat (di dashboard, tab Akses API) — yang disimpan di database cuma hash SHA-256-nya. Kalau token hilang, hapus saja dan buat yang baru; tidak ada cara untuk melihat ulang token yang sama.
+
+> Catatan: endpoint `/api/devices` & `/api/events` (tanpa `/external/`) tetap tanpa token — itu dipakai dashboard browser ini sendiri (lewat `EventSource`, yang tidak bisa kirim header custom), jadi tetap mengandalkan proteksi jaringan/VPN seperti di atas. Endpoint `/api/tokens` (kelola token) juga tanpa token tersendiri — levelnya sama seperti dashboard secara keseluruhan.
+
 ## Konfigurasi perangkat GT06 (SMS command)
 
 Device dikonfigurasi lewat SMS ke nomor SIM yang terpasang di dalamnya (password default pabrik biasanya `123456`, cek stiker/manual bawaan bila berbeda).
@@ -144,13 +158,28 @@ Setiap event Login/Heartbeat/GPS/Alarm otomatis disimpan ke PostgreSQL lewat [sr
 Dua tabel (lihat [db/schema.sql](db/schema.sql)):
 
 - **`devices`** — 1 baris per device, state TERKINI (posisi, kecepatan, status online, terakhir dilihat). Dipakai aplikasi dashboard/peta terpisah untuk render marker.
-- **`positions`** — riwayat posisi, append-only. Dipakai untuk gambar rute/playback di peta.
+- **`positions`** — riwayat posisi, append-only. Dipakai untuk gambar rute/playback di peta. Kolom `voltage_level`/`gsm_signal_strength` menyimpan nilai TERAKHIR yang diketahui dari paket Heartbeat (0x13) saat posisi itu dicatat — paket GPS sendiri tidak membawa info ini, jadi bukan pembacaan persis di detik yang sama, cuma nilai terakhir yang tersedia di memori server saat itu (`null` kalau belum pernah ada heartbeat, atau untuk baris lama sebelum kolom ini ditambahkan).
 
 **Retensi otomatis** ([src/db.js](src/db.js)): baris `positions` yang `recorded_at`-nya lebih tua dari `RETENTION` (default `90d`) dihapus otomatis, dicek tiap 24 jam (jalan juga sekali saat server baru start). Format `RETENTION`: angka + satuan `d`/`w`/`m`/`y` (hari/minggu/bulan/tahun) — contoh `90d`, `12w`, `3m`, `1y`. Tabel `devices` tidak kena retensi karena cuma menyimpan state terkini, tidak menumpuk.
 
 **Backup otomatis** ([src/backup.js](src/backup.js)): `pg_dump` terjadwal sesuai `BACKUP` (`daily`/`weekly`/`monthly`/`off`, default `monthly`), dijalankan otomatis setelah jam 03:00 waktu container di hari/minggu/bulan yang belum kebagian backup. File disimpan di volume `pgbackups` (path `/backups` di dalam container) dengan format `gt06-<database>-<timestamp>.dump`, dan hanya `BACKUP_KEEP` file terakhir yang disimpan (default `6`) — lebih lama dari itu otomatis dihapus.
 
 > Catatan: pengecekan jadwal jalan tiap jam (bukan menghitung mundur presis ke tanggal target), jadi kalau server sempat mati pas jadwalnya lewat, backup akan otomatis "menyusul" di jam berikutnya setelah server nyala lagi — tidak akan terlewat begitu saja.
+
+> **Migrasi untuk database yang sudah jalan lama**: `db/schema.sql` cuma otomatis jalan saat volume Postgres pertama kali dibuat. Kalau database Anda sudah ada sebelum kolom `voltage_level`/`gsm_signal_strength` ditambahkan ke tabel `positions`, jalankan manual:
+> ```bash
+> docker compose exec postgres psql -U gt06 -d gt06 -c "ALTER TABLE positions ADD COLUMN IF NOT EXISTS voltage_level SMALLINT; ALTER TABLE positions ADD COLUMN IF NOT EXISTS gsm_signal_strength SMALLINT;"
+> ```
+
+**Penting — dashboard & API TIDAK membaca dari database secara langsung.** Tabel `devices`/`positions` cuma ditulis (fire-and-forget) untuk histori/dashboard eksternal; dashboard web ini dan endpoint `/api/devices`, `/api/events`, `/api/external/*` menampilkan state di **memori proses** yang cuma terisi dari device yang benar-benar konek lewat TCP. Konsekuensinya: setelah restore data (mis. dari server produksi) atau restart server, dashboard akan tampak kosong sampai device asli konek lagi — walau datanya sudah ada di database.
+
+Kalau perlu langsung menampilkan data yang ada di database (tanpa menunggu device live), jalankan:
+
+```bash
+docker compose exec gt06-server npm run reload-devices
+```
+
+Ini memuat state terakhir tiap device dari tabel `devices` ke memori (ditandai offline/`connected: false` karena bukan sesi live), tanpa menimpa device yang sedang benar-benar konek. Lihat [scripts/reload-devices.js](scripts/reload-devices.js).
 
 Contoh cek data & backup langsung dari container:
 ```bash

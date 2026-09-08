@@ -1,2 +1,17 @@
 simulasi kirim data
 node examples/simulate-device.js --host 10.81.81.16 --port 5023 --interval 3
+
+==== Backup dari Prod
+Di server produksi — dump tabel yang dibutuhkan saja
+docker compose exec gt06-server pg_dump -h postgres -U gt06 -d gt06 -Fc -t devices -t positions -f /backups/export-posisi.dump
+-t devices -t positions membatasi dump hanya ke dua tabel itu — api_tokens (dan tabel lain yang mungkin ada nanti) tidak ikut terbawa.
+
+==== Restore ke database lokal
+cd gt06_decode
+docker compose cp ./export-posisi.dump gt06-server:/backups/export-posisi.dump
+docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean --if-exists /backups/export-posisi.dump
+
+--clean --if-exists menghapus dulu isi tabel devices/positions lokal sebelum mengisi data dari prod (supaya tidak duplikat/konflik primary key) — pastikan memang tidak butuh data lokal yang sedang ada sebelum menjalankan ini.
+
+Jalankan ini setelah restore database
+docker compose exec gt06-server npm run reload-devices

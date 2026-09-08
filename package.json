@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "example": "node examples/decode-sample.js",
-    "simulate": "node examples/simulate-device.js"
+    "simulate": "node examples/simulate-device.js",
+    "reload-devices": "node scripts/reload-devices.js"
   },
   "license": "MIT",
   "dependencies": {

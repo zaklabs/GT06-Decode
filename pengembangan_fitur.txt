@@ -1,0 +1,31 @@
+===== Fitur Playback Rute ===== 
+Fitur riwayat rute sudah jalan dan teruji end-to-end (data asli 140 titik, 10.2 km, marker dengan rotasi arah yang benar per titik, playback otomatis sampai selesai, scrubber & ganti kecepatan berfungsi).
+
+Yang ditambahkan:
+gt06_decode — endpoint baru GET /api/external/positions?imei=...&from=...&to=... (butuh token, sama seperti endpoint eksternal lain), query ke tabel positions yang sudah ada
+gps-dash backend — GET /api/vehicles/:id/track (vehicles.js): cari IMEI kenderaan, proxy ke endpoint di atas — jadi tetap konsisten dengan arsitektur "gps-dash tidak connect database gt06_decode langsung"
+Halaman baru track.html + track.js — dibuka lewat tombol "Lihat" di tabel Kenderaan:
+Filter rentang tanggal (custom atau chip cepat: 24 Jam / 7 Hari / 30 Hari)
+Statistik: jumlah titik data, jarak tempuh (dihitung haversine), durasi
+Peta Leaflet — rute penuh digambar redup, bagian yang sudah "dilewati" saat playback digambar solid biru
+Kontrol playback: tombol play/pause, slider untuk scrub manual, pilihan kecepatan 1x/2x/4x/8x, label waktu berjalan
+
+Soal ikon: saya pakai bentuk panah navigasi (gaya "paper plane", biru dengan outline putih) yang diputar sesuai arah (course) tiap titik — mirip semangat ikon yang Anda upload, tapi saya gambar ulang sebagai SVG bersih (bukan reproduksi piksel-demi-piksel dari gambar aslinya). Kalau warnanya/bentuknya kurang pas dengan yang Anda maksud, kasih tahu saya detailnya (warna, lebih runcing/bulat, dsb.) dan saya sesuaikan.
+
+===== Fitur Pemilihan Rute ===== 
+Fitur pemilihan rute berdasarkan lama berhenti sudah selesai, diimplementasikan, dan diuji end-to-end (termasuk kasus nyata: 6 menit berhenti berhasil memisah jadi 2 rute, 9 titik berhenti sesaat ditandai ikon parkir, dan klik kartu carousel benar-benar memindahkan tampilan peta + statistik ke rute yang dipilih).
+
+Logika pemisahan (di track.js):
+
+Cari semua rangkaian titik dengan speed === 0 (berhenti)
+Kalau durasi berhenti ≥ 5 menit → jadi batas antar rute (rute baru dimulai)
+Kalau durasi berhenti < 5 menit → tetap 1 rute, cuma ditandai ikon parkir (kotak biru tua dengan huruf "P") di lokasi itu
+Carousel "Pilih Rute" — muncul otomatis di atas peta kalau data terbagi jadi lebih dari 1 rute (tersembunyi kalau cuma 1 rute, supaya tidak ada pilihan kosong). Tiap kartu menampilkan:
+
+Label (Semua Rute / Rute 1 / Rute 2 / ...)
+Tanggal (jadi rentang tanggal otomatis kalau rute itu melewati tengah malam)
+Jam mulai–selesai, jarak, dan durasi
+Klik kartu memindahkan peta (fit ke rute itu saja), reset playback, dan update statistik (Titik Data/Jarak/Durasi) supaya cuma mencerminkan rute yang dipilih — bukan keseluruhan data yang di-load.
+
+Satu bug kecil sempat ketemu & diperbaiki saat testing: kartu tanggal awalnya cuma menampilkan tanggal mulai walau rute-nya melewati tengah malam (jadi jam selesai terlihat "salah hari") — sudah diperbaiki jadi rentang tanggal otomatis.
+
