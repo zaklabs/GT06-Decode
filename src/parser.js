@@ -152,6 +152,13 @@ function decodeLogin(content) {
   return result;
 }
 
+// Device di lapangan (armada ini) dikonfigurasi mengirim jam LOKAL (Asia/Jakarta, GMT+7),
+// bukan UTC seperti asumsi standar kebanyakan implementasi GT06. Kalau field jam ini
+// diperlakukan langsung sebagai UTC (tanpa dikurangi offset), setiap posisi tersimpan
+// telat 7 jam dari waktu UTC yang sebenarnya -- lalu makin berantakan saat dashboard
+// mengonversinya lagi ke WIB untuk ditampilkan (jadi maju 7 jam dari waktu asli).
+const DEVICE_TZ_OFFSET_HOURS = 7;
+
 function decodeDateTime(content, offset) {
   const year = 2000 + content[offset];
   const month = content[offset + 1];
@@ -159,7 +166,9 @@ function decodeDateTime(content, offset) {
   const hour = content[offset + 3];
   const minute = content[offset + 4];
   const second = content[offset + 5];
-  return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  // Date.UTC otomatis menangani rollover kalau hour-offset jadi negatif (mis. jam 03:00
+  // dikurangi 7 -> otomatis mundur ke tanggal sebelumnya jam 20:00), jadi aman langsung dikurangi.
+  return new Date(Date.UTC(year, month - 1, day, hour - DEVICE_TZ_OFFSET_HOURS, minute, second));
 }
 
 function decodeGpsLbs(content) {

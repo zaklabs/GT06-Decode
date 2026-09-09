@@ -198,3 +198,4 @@ docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean -
 ## Catatan pengembangan
 
 - Layout byte Alarm (`0x16`) mengikuti layout GPS standar; posisi byte terminal-info/alarm-type di akhir bisa berbeda tergantung firmware — sesuaikan bila punya sample paket real dari device yang dipakai.
+- **Field jam di paket GPS/LBS device armada ini adalah jam LOKAL (Asia/Jakarta, GMT+7), bukan UTC** seperti asumsi standar kebanyakan implementasi GT06 — lihat `DEVICE_TZ_OFFSET_HOURS` di [src/parser.js](src/parser.js). Kalau nanti ada device dari vendor/konfigurasi lain yang justru kirim UTC asli, field ini perlu disesuaikan per-device (saat ini hardcode berlaku untuk semua device).
