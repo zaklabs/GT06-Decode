@@ -73,7 +73,10 @@ function buildLoginFrame(imei) {
 }
 
 function buildGpsFrame(lat, lon, speedKmh) {
-  const now = new Date();
+  // Device di lapangan mengirim jam LOKAL (Asia/Jakarta, GMT+7), bukan UTC -- simulator
+  // ikut meniru itu (lihat DEVICE_TZ_OFFSET_HOURS di src/parser.js) supaya data hasil
+  // simulasi merepresentasikan device asli dengan benar.
+  const now = new Date(Date.now() + 7 * 60 * 60 * 1000);
   const dateTime = Buffer.from([
     now.getUTCFullYear() - 2000,
     now.getUTCMonth() + 1,

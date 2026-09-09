@@ -264,8 +264,7 @@
     div.dataset.tag = tag;
     div.dataset.level = entry.level;
 
-    var time = new Date(entry.ts).toLocaleTimeString('id-ID', { hour12: false, timeZone: TZ });
-    div.innerHTML = '<span class="ts">' + time + '</span>' + escapeHtml(entry.message);
+    div.innerHTML = '<span class="ts">' + fmtDateTime(entry.ts) + '</span>' + escapeHtml(entry.message);
 
     if (!matchesFilter(tag, entry.level)) div.style.display = 'none';
 
@@ -300,7 +299,7 @@
       var posHtml = hasPos
         ? '<a class="maplink" target="_blank" rel="noopener" href="https://www.google.com/maps?q=' + d.latitude + ',' + d.longitude + '">' + fmtCoord(d.latitude) + ', ' + fmtCoord(d.longitude) + '</a>'
         : '<span class="muted">-</span>';
-      var lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString('id-ID', { hour12: false, timeZone: TZ }) : '-';
+      var lastSeen = d.lastSeen ? fmtDateTime(d.lastSeen) : '-';
       return '<tr>' +
         '<td><span class="dev-dot ' + (d.connected ? 'on' : '') + '"></span></td>' +
         '<td class="imei">' + (d.imei || '-') + '</td>' +

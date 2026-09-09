@@ -15,3 +15,17 @@ docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean -
 
 Jalankan ini setelah restore database
 docker compose exec gt06-server npm run reload-devices
+
+==== Tambah table token ke postgree
+docker compose exec postgres psql -U gt06 -d gt06 -c "
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id            SERIAL PRIMARY KEY,
+  label         VARCHAR(100) NOT NULL,
+  token_hash    CHAR(64) NOT NULL UNIQUE,
+  token_prefix  VARCHAR(16) NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at  TIMESTAMPTZ
+);
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS voltage_level SMALLINT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS gsm_signal_strength SMALLINT;
+"
