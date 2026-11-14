@@ -31,7 +31,11 @@ services:
         condition: service_healthy
     ports:
       - "${GT06_PORT:-5023}:5023"
-      - "${WEB_PORT:-8083}:8080" # host:container -- ganti angka kiri saja untuk ubah port host
+      # Port TCP GT06 di atas tetap publik (device konek dari luar).
+      # Dashboard/API web default HANYA di 127.0.0.1 host -- akses dari luar lewat
+      # SSH tunnel / reverse proxy HTTPS, atau set WEB_BIND=0.0.0.0 secara sadar.
+      # GPS-Dashboard sebaiknya mengakses lewat jaringan Docker (http://gt06-server:8080).
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8083}:8080" # bind:host:container
     environment:
       GT06_PORT: "5023"
       GT06_HOST: "0.0.0.0"
@@ -47,6 +51,11 @@ services:
       BACKUP: ${BACKUP:-monthly}         # daily / weekly / monthly / off
       BACKUP_KEEP: ${BACKUP_KEEP:-6}     # jumlah file backup terakhir yang disimpan
       BACKUP_DIR: /backups
+      # Basic Auth dashboard internal + manajemen token + endpoint internal.
+      # Tanpa ADMIN_PASSWORD, fitur admin dinonaktifkan (503); ingest & /api/external/* tetap jalan.
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GT06_MAX_CONNECTIONS: ${GT06_MAX_CONNECTIONS:-1000}
     volumes:
       - pgbackups:/backups
     logging:
