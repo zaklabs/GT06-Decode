@@ -1,3 +1,7 @@
-./docker-compose.yml
 node_modules
 .env
+
+# Dump/backup database (berisi data posisi & IMEI produksi) -- jangan pernah di-commit
+*.dump
+*.sql.gz
+backups/
