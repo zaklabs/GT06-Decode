@@ -10,7 +10,11 @@
  *   docker compose exec gt06-server npm run reload-devices
  *
  * Atau dari luar Docker, arahkan ke port yang di-publish ke host:
- *   WEB_URL=http://localhost:8083/api/internal/reload-devices node scripts/reload-devices.js
+ *   WEB_URL=http://localhost:8083/api/internal/reload-devices ADMIN_PASSWORD=... node scripts/reload-devices.js
+ *
+ * Endpoint ini wajib Basic Auth admin -- kredensial diambil dari env
+ * ADMIN_USER (default "admin") & ADMIN_PASSWORD, yang di dalam container
+ * sudah otomatis tersedia dari docker-compose.yml.
  */
 
 const http = require('http');
@@ -19,7 +23,15 @@ const https = require('https');
 const target = new URL(process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 8080}/api/internal/reload-devices`);
 const client = target.protocol === 'https:' ? https : http;
 
-const req = client.request(target, { method: 'POST' }, (res) => {
+const headers = {};
+if (process.env.ADMIN_PASSWORD) {
+  const creds = `${process.env.ADMIN_USER || 'admin'}:${process.env.ADMIN_PASSWORD}`;
+  headers.Authorization = 'Basic ' + Buffer.from(creds, 'utf8').toString('base64');
+} else {
+  console.warn('Peringatan: ADMIN_PASSWORD tidak diset di env, request kemungkinan ditolak (401/503).');
+}
+
+const req = client.request(target, { method: 'POST', headers }, (res) => {
   let data = '';
   res.on('data', (chunk) => (data += chunk));
   res.on('end', () => {

@@ -197,7 +197,8 @@
   <div class="tokens-panel">
     <p class="hint">
       Token dipakai aplikasi lain (mis. <b>gps-dash</b>) untuk mengambil data posisi device lewat
-      <code class="inline">GET /api/external/devices</code> dan <code class="inline">GET /api/external/events</code> (SSE realtime),
+      <code class="inline">GET /api/external/devices</code>, <code class="inline">GET /api/external/events</code> (SSE realtime, event <code class="inline">device</code>)
+      dan <code class="inline">GET /api/external/positions</code> (riwayat posisi),
       dengan header <code class="inline">Authorization: Bearer &lt;token&gt;</code>. Token hanya ditampilkan sekali saat
       dibuat &mdash; simpan baik-baik, tidak bisa dilihat lagi setelah itu.
     </p>

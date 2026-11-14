@@ -6,6 +6,7 @@ const path = require('path');
 const { bus, log, getHistory, clearHistory, getDevices, seedDevice } = require('./logger');
 const tokens = require('./tokens');
 const db = require('./db');
+const auth = require('./auth');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -15,6 +16,26 @@ const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
+}
+
+/** Catat detail error di log server, kirim pesan generik ke klien (jangan bocorkan err.message DB). */
+function sendServerError(res, context, err) {
+  log('error', `[WEB] ${context}: ${err && err.message}`);
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  sendJson(res, 500, { error: 'Terjadi kesalahan internal server' });
+}
+
+const IMEI_RE = /^[0-9a-f]{1,20}$/i; // sesuai kolom VARCHAR(20); IMEI GT06 di-decode dari BCD/hex
+const MAX_POSITIONS_LIMIT = 20000;
+const DEFAULT_POSITIONS_LIMIT = 5000;
+
+/** Parse tanggal query string; null kalau tidak valid. */
+function parseDateParam(value) {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function readJsonBody(req) {
@@ -40,8 +61,12 @@ function getBearerToken(req) {
   return match ? match[1].trim() : null;
 }
 
-/** Stream event `log`/`device`/`clear` sebagai SSE ke `res` (dipakai dashboard internal maupun API eksternal). */
-function streamEvents(req, res) {
+/**
+ * Stream event SSE ke `res`. Dashboard internal menerima `log`/`device`/`clear`;
+ * API eksternal (`includeLogs: false`) hanya menerima `device` -- log operasional
+ * (IP device, error DB, dsb.) tidak dibagikan ke aplikasi lain.
+ */
+function streamEvents(req, res, { includeLogs = true } = {}) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
@@ -50,8 +75,10 @@ function streamEvents(req, res) {
   res.write('\n');
 
   // kirim histori log & device yang sudah ada supaya tab/consumer baru langsung terisi
-  for (const entry of getHistory()) {
-    res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
+  if (includeLogs) {
+    for (const entry of getHistory()) {
+      res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
+    }
   }
   for (const device of getDevices()) {
     res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
@@ -61,9 +88,11 @@ function streamEvents(req, res) {
   const onDevice = (device) => res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
   const onClear = () => res.write('event: clear\ndata: {}\n\n');
 
-  bus.on('log', onLog);
+  if (includeLogs) {
+    bus.on('log', onLog);
+    bus.on('clear', onClear);
+  }
   bus.on('device', onDevice);
-  bus.on('clear', onClear);
 
   const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
 
@@ -75,128 +104,198 @@ function streamEvents(req, res) {
   });
 }
 
+/** Route yang wajib Basic Auth admin (dashboard internal, manajemen token, endpoint internal). */
+function isAdminRoute(pathname) {
+  return (
+    pathname === '/' ||
+    pathname === '/index.html' ||
+    pathname === '/api/logs' ||
+    pathname === '/api/devices' ||
+    pathname === '/api/events' ||
+    pathname === '/api/tokens' ||
+    pathname.startsWith('/api/tokens/') ||
+    pathname.startsWith('/api/internal/')
+  );
+}
+
+function handleAdmin(req, res, pathname) {
+  if (req.method === 'DELETE' && pathname === '/api/logs') {
+    clearHistory();
+    log('info', '[i] Log dashboard direset lewat web UI');
+    res.writeHead(204).end();
+    return;
+  }
+
+  // Muat ulang state device dari database ke memori -- dipakai lewat
+  // `npm run reload-devices` setelah restore data, supaya dashboard & API
+  // eksternal langsung menampilkan device yang ada di DB tanpa menunggu
+  // device live reconnect. Tidak menimpa device yang sedang benar-benar
+  // konek (lihat seedDevice() di logger.js).
+  if (req.method === 'POST' && pathname === '/api/internal/reload-devices') {
+    db.getAllDevices()
+      .then((rows) => {
+        for (const row of rows) seedDevice(row.imei, row);
+        log('info', `[i] Reload manual: ${rows.length} device dimuat ulang dari database ke memori`);
+        sendJson(res, 200, { reloaded: rows.length });
+      })
+      .catch((err) => sendServerError(res, 'Gagal reload device', err));
+    return;
+  }
+
+  // --- Manajemen token, dipakai tab "Akses API" di dashboard (wajib Basic Auth admin).
+  if (pathname === '/api/tokens' && req.method === 'GET') {
+    tokens
+      .listTokens()
+      .then((list) => sendJson(res, 200, list))
+      .catch((err) => sendServerError(res, 'Gagal ambil daftar token', err));
+    return;
+  }
+
+  if (pathname === '/api/tokens' && req.method === 'POST') {
+    readJsonBody(req)
+      .then(
+        (body) => {
+          const label = String((body && body.label) || '').trim();
+          if (!label) return sendJson(res, 400, { error: 'label wajib diisi' });
+          if (label.length > 100) return sendJson(res, 400, { error: 'label maksimal 100 karakter' });
+          return tokens
+            .createToken(label)
+            .then((created) => {
+              log('info', `[i] Token API dibuat: "${label}" (${created.token_prefix}...)`);
+              sendJson(res, 201, created);
+            })
+            .catch((err) => sendServerError(res, 'Gagal membuat token', err));
+        },
+        () => sendJson(res, 400, { error: 'Body JSON tidak valid' })
+      );
+    return;
+  }
+
+  const tokenDeleteMatch = /^\/api\/tokens\/(\d+)$/.exec(pathname);
+  if (tokenDeleteMatch && req.method === 'DELETE') {
+    tokens
+      .deleteToken(Number(tokenDeleteMatch[1]))
+      .then((found) => {
+        if (!found) return sendJson(res, 404, { error: 'Token tidak ditemukan' });
+        log('info', `[i] Token API id=${tokenDeleteMatch[1]} dihapus`);
+        res.writeHead(204).end();
+      })
+      .catch((err) => sendServerError(res, 'Gagal menghapus token', err));
+    return;
+  }
+
+  if (req.method !== 'GET') {
+    res.writeHead(405).end();
+    return;
+  }
+
+  if (pathname === '/' || pathname === '/index.html') {
+    fs.readFile(INDEX_HTML_PATH, (err, content) => {
+      if (err) {
+        res.writeHead(500).end('Gagal memuat dashboard');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(content);
+    });
+    return;
+  }
+
+  // Dipakai dashboard internal (browser). EventSource tidak bisa kirim header
+  // custom, tapi Basic Auth dari browser tetap ikut otomatis untuk same-origin.
+  if (pathname === '/api/devices') {
+    sendJson(res, 200, getDevices());
+    return;
+  }
+
+  if (pathname === '/api/events') {
+    streamEvents(req, res);
+    return;
+  }
+
+  res.writeHead(404).end('Not found');
+}
+
+function handlePositions(res, url) {
+  const imei = url.searchParams.get('imei');
+  if (!imei) return sendJson(res, 400, { error: 'Parameter imei wajib diisi' });
+  if (!IMEI_RE.test(imei)) return sendJson(res, 400, { error: 'Parameter imei tidak valid' });
+
+  const fromRaw = url.searchParams.get('from');
+  const toRaw = url.searchParams.get('to');
+  const from = fromRaw ? parseDateParam(fromRaw) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const to = toRaw ? parseDateParam(toRaw) : new Date();
+  if (!from) return sendJson(res, 400, { error: 'Parameter from bukan tanggal yang valid' });
+  if (!to) return sendJson(res, 400, { error: 'Parameter to bukan tanggal yang valid' });
+
+  // Kompatibel dengan perilaku lama: limit kosong/0/bukan angka -> default.
+  const limitNum = Number(url.searchParams.get('limit')) || DEFAULT_POSITIONS_LIMIT;
+  if (limitNum < 1) return sendJson(res, 400, { error: 'Parameter limit harus bilangan positif' });
+  const limit = Math.min(Math.floor(limitNum), MAX_POSITIONS_LIMIT);
+
+  // String from/to asli tetap diteruskan ke PostgreSQL apa adanya (seperti sebelumnya)
+  // supaya interpretasi zona waktu untuk input tanpa offset tidak berubah.
+  db.getPositions({ imei, from: fromRaw || from.toISOString(), to: toRaw || to.toISOString(), limit })
+    .then((rows) => sendJson(res, 200, rows))
+    .catch((err) => {
+      // 22007 invalid_datetime_format, 22008 datetime_field_overflow -- input klien, bukan error server
+      if (err && (err.code === '22007' || err.code === '22008')) {
+        return sendJson(res, 400, { error: 'Parameter from/to bukan tanggal yang valid' });
+      }
+      return sendServerError(res, 'Gagal ambil riwayat posisi', err);
+    });
+}
+
+function handleExternal(req, res, url, pathname) {
+  if (req.method !== 'GET') {
+    res.writeHead(405).end();
+    return;
+  }
+  tokens
+    .verifyToken(getBearerToken(req))
+    .then((valid) => {
+      if (!valid) return sendJson(res, 401, { error: 'Token tidak valid atau hilang' });
+
+      if (pathname === '/api/external/devices') return sendJson(res, 200, getDevices());
+      if (pathname === '/api/external/events') return streamEvents(req, res, { includeLogs: false });
+      // Riwayat posisi (histori) per device -- dipakai fitur playback rute.
+      return handlePositions(res, url);
+    })
+    .catch((err) => sendServerError(res, 'Gagal verifikasi token', err));
+}
+
 function start() {
+  const warning = auth.configWarning();
+  if (warning) log('warn', warning);
+
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://internal');
+    let url;
+    try {
+      url = new URL(req.url, 'http://internal');
+    } catch (err) {
+      res.writeHead(400).end('Bad request');
+      return;
+    }
     const pathname = url.pathname;
 
-    if (req.method === 'DELETE' && pathname === '/api/logs') {
-      clearHistory();
-      log('info', '[i] Log dashboard direset lewat web UI');
-      res.writeHead(204).end();
-      return;
-    }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
 
-    // Muat ulang state device dari database ke memori -- dipakai lewat
-    // `npm run reload-devices` setelah restore data, supaya dashboard & API
-    // eksternal langsung menampilkan device yang ada di DB tanpa menunggu
-    // device live reconnect. Tidak menimpa device yang sedang benar-benar
-    // konek (lihat seedDevice() di logger.js).
-    if (req.method === 'POST' && pathname === '/api/internal/reload-devices') {
-      db.getAllDevices()
-        .then((rows) => {
-          for (const row of rows) seedDevice(row.imei, row);
-          log('info', `[i] Reload manual: ${rows.length} device dimuat ulang dari database ke memori`);
-          sendJson(res, 200, { reloaded: rows.length });
-        })
-        .catch((err) => sendJson(res, 500, { error: err.message }));
-      return;
-    }
-
-    // --- Manajemen token, dipakai tab "Akses API" di dashboard.
-    // Tidak butuh Bearer token sendiri -- level trust-nya sama dengan
-    // dashboard secara keseluruhan (lihat catatan keamanan di README).
-    if (pathname === '/api/tokens' && req.method === 'GET') {
-      tokens
-        .listTokens()
-        .then((list) => sendJson(res, 200, list))
-        .catch((err) => sendJson(res, 500, { error: err.message }));
-      return;
-    }
-
-    if (pathname === '/api/tokens' && req.method === 'POST') {
-      readJsonBody(req)
-        .then((body) => {
-          const label = String(body.label || '').trim();
-          if (!label) return sendJson(res, 400, { error: 'label wajib diisi' });
-          return tokens.createToken(label).then((created) => sendJson(res, 201, created));
-        })
-        .catch((err) => sendJson(res, 400, { error: err.message }));
-      return;
-    }
-
-    const tokenDeleteMatch = /^\/api\/tokens\/(\d+)$/.exec(pathname);
-    if (tokenDeleteMatch && req.method === 'DELETE') {
-      tokens
-        .deleteToken(Number(tokenDeleteMatch[1]))
-        .then((found) => (found ? res.writeHead(204).end() : sendJson(res, 404, { error: 'Token tidak ditemukan' })))
-        .catch((err) => sendJson(res, 500, { error: err.message }));
-      return;
-    }
-
-    if (req.method !== 'GET') {
-      res.writeHead(405).end();
-      return;
-    }
-
-    if (pathname === '/' || pathname === '/index.html') {
-      fs.readFile(INDEX_HTML_PATH, (err, content) => {
-        if (err) {
-          res.writeHead(500).end('Gagal memuat dashboard');
-          return;
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(content);
-      });
-      return;
-    }
-
-    // --- Dipakai dashboard internal (browser, EventSource tanpa header) --
-    // tetap tanpa token, dilindungi lewat jaringan/VPN sesuai README.
-    if (pathname === '/api/devices') {
-      sendJson(res, 200, getDevices());
-      return;
-    }
-
-    if (pathname === '/api/events') {
-      streamEvents(req, res);
-      return;
-    }
-
-    // --- API eksternal (mis. gps-dash) -- wajib token, dibuat/dihapus lewat tab "Akses API".
+    // --- API eksternal (mis. GPS-Dashboard) -- wajib Bearer token, dibuat/dihapus lewat tab "Akses API".
     if (
       pathname === '/api/external/devices' ||
       pathname === '/api/external/events' ||
       pathname === '/api/external/positions'
     ) {
-      const token = getBearerToken(req);
-      tokens
-        .verifyToken(token)
-        .then((valid) => {
-          if (!valid) return sendJson(res, 401, { error: 'Token tidak valid atau hilang' });
+      handleExternal(req, res, url, pathname);
+      return;
+    }
 
-          if (pathname === '/api/external/devices') {
-            sendJson(res, 200, getDevices());
-            return;
-          }
-          if (pathname === '/api/external/events') {
-            streamEvents(req, res);
-            return;
-          }
-
-          // Riwayat posisi (histori) per device -- dipakai fitur playback rute.
-          const imei = url.searchParams.get('imei');
-          if (!imei) return sendJson(res, 400, { error: 'Parameter imei wajib diisi' });
-
-          const from = url.searchParams.get('from') || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-          const to = url.searchParams.get('to') || new Date().toISOString();
-          const limit = Math.min(Number(url.searchParams.get('limit')) || 5000, 20000);
-
-          db.getPositions({ imei, from, to, limit })
-            .then((rows) => sendJson(res, 200, rows))
-            .catch((err) => sendJson(res, 500, { error: err.message }));
-        })
-        .catch((err) => sendJson(res, 500, { error: err.message }));
+    // --- Dashboard internal, manajemen token & endpoint internal -- wajib Basic Auth admin.
+    if (isAdminRoute(pathname)) {
+      if (!auth.requireAdmin(req, res)) return;
+      handleAdmin(req, res, pathname);
       return;
     }
 
