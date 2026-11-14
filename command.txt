@@ -1,10 +1,13 @@
 simulasi kirim data
-node examples/simulate-device.js --host 10.81.81.16 --port 5023 --interval 3
+node examples/simulate-device.js --host <IP_SERVER_GT06> --port 5023 --interval 3
 
 ==== Backup dari Prod
 Di server produksi — dump tabel yang dibutuhkan saja
 docker compose exec gt06-server pg_dump -h postgres -U gt06 -d gt06 -Fc -t devices -t positions -f /backups/export-posisi.dump
 -t devices -t positions membatasi dump hanya ke dua tabel itu — api_tokens (dan tabel lain yang mungkin ada nanti) tidak ikut terbawa.
+
+PERINGATAN: file *.dump berisi IMEI + riwayat lokasi produksi. JANGAN di-commit ke git
+(sudah di-ignore lewat .gitignore) dan hapus dari laptop/server lokal setelah selesai dipakai.
 
 ==== Restore ke database lokal
 cd gt06_decode
@@ -15,6 +18,7 @@ docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean -
 
 Jalankan ini setelah restore database
 docker compose exec gt06-server npm run reload-devices
+(butuh ADMIN_PASSWORD di .env -- otomatis diteruskan ke container lewat docker-compose.yml)
 
 ==== Tambah table token ke postgree
 docker compose exec postgres psql -U gt06 -d gt06 -c "
