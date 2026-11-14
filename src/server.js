@@ -9,6 +9,21 @@ const db = require('./db');
 const PORT = process.env.GT06_PORT ? Number(process.env.GT06_PORT) : 5023;
 const HOST = process.env.GT06_HOST || '0.0.0.0';
 
+function envInt(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+// Batas koneksi TCP simultan (device asli biasanya 1 koneksi per unit).
+const MAX_CONNECTIONS = envInt('GT06_MAX_CONNECTIONS', 1000);
+// Frame GT06 terbesar (0x7979, length 2 byte) +- 64 KB; buffer yang melebihi ini
+// pasti bukan data valid -> putus koneksi supaya memori tidak bisa dibanjiri.
+const MAX_BUFFER_BYTES = envInt('GT06_MAX_BUFFER_BYTES', 128 * 1024);
+// Koneksi yang belum mengirim paket LOGIN dalam waktu ini diputus, supaya slot
+// koneksi tidak bisa dihabiskan oleh koneksi kosong/idle. Device GT06 asli
+// mengirim LOGIN segera setelah konek.
+const LOGIN_TIMEOUT_MS = envInt('GT06_LOGIN_TIMEOUT_MS', 60 * 1000);
+
 /**
  * Membuat paket balasan (ACK) format 0x7878 standar:
  * 78 78 <len> <protocol> <serial 2 byte> <crc 2 byte> 0D 0A
@@ -40,6 +55,14 @@ const server = net.createServer((socket) => {
   let hasData = false; // pembeda koneksi device asli vs probe kosong (mis. Docker healthcheck)
   const remote = `${socket.remoteAddress}:${socket.remotePort}`;
 
+  const loginTimer = setTimeout(() => {
+    if (!imei) {
+      if (hasData) log('warn', `[!] ${remote} tidak mengirim LOGIN dalam ${LOGIN_TIMEOUT_MS} ms, koneksi diputus`);
+      socket.destroy();
+    }
+  }, LOGIN_TIMEOUT_MS);
+  loginTimer.unref();
+
   socket.on('data', (chunk) => {
     if (!hasData) {
       hasData = true;
@@ -50,6 +73,13 @@ const server = net.createServer((socket) => {
 
     const { frames, rest } = splitFrames(buffer);
     buffer = rest;
+    if (buffer.length > MAX_BUFFER_BYTES) {
+      // Jaring pengaman: sisa frame belum lengkap seharusnya tidak pernah > ~64 KB.
+      log('warn', `[!] Sisa buffer dari ${remote} melebihi ${MAX_BUFFER_BYTES} byte, koneksi diputus`);
+      buffer = Buffer.alloc(0);
+      socket.destroy();
+      return;
+    }
 
     for (const frame of frames) {
       let packet;
@@ -70,6 +100,7 @@ const server = net.createServer((socket) => {
   });
 
   socket.on('close', () => {
+    clearTimeout(loginTimer);
     if (hasData) {
       log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
       if (imei) {
@@ -163,6 +194,12 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
     }
   }
 }
+
+server.maxConnections = MAX_CONNECTIONS;
+
+server.on('drop', (data) => {
+  log('warn', `[!] Koneksi dari ${data && data.remoteAddress} ditolak: batas ${MAX_CONNECTIONS} koneksi tercapai`);
+});
 
 server.on('error', (err) => {
   log('error', `[!] Server error: ${err.message}`);
