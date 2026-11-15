@@ -149,6 +149,40 @@ const server = net.createServer((socket) => {
   });
 });
 
+// Paket GPS dari socket publik tidak dipercaya: tanpa fix GPS (lat/lon tidak berarti) atau dengan jam
+// perangkat di masa depan (jam salah) tidak boleh masuk jejak maupun posisi terakhir.
+const MAX_FUTURE_MS = 10 * 60 * 1000;
+
+/** Mengembalikan alasan penolakan, atau null jika paket layak disimpan sebagai posisi. */
+function checkFix(data) {
+  if (!data.gpsFixed) return 'tanpa fix GPS';
+  const t = data.timestamp instanceof Date ? data.timestamp.getTime() : NaN;
+  if (Number.isNaN(t)) return 'jam tidak valid';
+  if (t > Date.now() + MAX_FUTURE_MS) return 'jam perangkat di masa depan';
+  return null;
+}
+
+function safeIso(date) {
+  return date instanceof Date && !Number.isNaN(date.getTime()) ? date.toISOString() : 'invalid';
+}
+
+/** Titik tersimpan yang dikirim ulang perangkat (jam lebih lama) tidak boleh menimpa posisi terbaru. */
+function isNewerThanKnown(imei, timestamp) {
+  const known = getDevice(imei);
+  if (!known || !known.gpsTimestamp) return true;
+  return timestamp.getTime() >= new Date(known.gpsTimestamp).getTime();
+}
+
+function positionPatch(data) {
+  return {
+    latitude: data.latitude,
+    longitude: data.longitude,
+    speed: data.speed,
+    course: data.course,
+    gpsTimestamp: data.timestamp.toISOString(),
+  };
+}
+
 function handlePacket(socket, remote, packet, setImei, getImei) {
   const { protocolNumber, protocolHex, serialNumber, data } = packet;
 
@@ -181,49 +215,53 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
     case PROTOCOL.GPS_LBS_1:
     case PROTOCOL.GPS_LBS_2:
     case PROTOCOL.GPS_LBS_STATUS: {
-      log('info', `[GPS] ${remote} imei=${getImei()} lat=${data.latitude} lon=${data.longitude} speed=${data.speed}km/h ts=${data.timestamp.toISOString()}`);
+      const verdict = checkFix(data);
+      log('info', `[GPS] ${remote} imei=${getImei()} lat=${data.latitude} lon=${data.longitude} speed=${data.speed}km/h ts=${safeIso(data.timestamp)}${verdict ? ` (${verdict}, tidak disimpan)` : ''}`);
       if (getImei()) {
-        updateDevice(getImei(), {
-          connected: true,
-          latitude: data.latitude,
-          longitude: data.longitude,
-          speed: data.speed,
-          course: data.course,
-          gpsTimestamp: data.timestamp.toISOString(),
-        });
-        // Paket GPS tidak membawa voltage/gsm -- ambil nilai terakhir yang diketahui
-        // dari heartbeat (kalau belum pernah ada heartbeat, tersimpan null).
-        const known = getDevice(getImei());
-        db.recordPosition({
-          imei: getImei(),
-          latitude: data.latitude,
-          longitude: data.longitude,
-          speed: data.speed,
-          course: data.course,
-          voltageLevel: known ? known.voltageLevel : null,
-          gsmSignalStrength: known ? known.gsmSignalStrength : null,
-          recordedAt: data.timestamp,
-        }).catch((err) => log('error', `[DB] Gagal simpan posisi ${getImei()}: ${err.message}`));
+        if (verdict) {
+          updateDevice(getImei(), { connected: true });
+        } else {
+          updateDevice(getImei(), { connected: true, ...(isNewerThanKnown(getImei(), data.timestamp) ? positionPatch(data) : {}) });
+          // Paket GPS tidak membawa voltage/gsm -- ambil nilai terakhir yang diketahui
+          // dari heartbeat (kalau belum pernah ada heartbeat, tersimpan null).
+          const known = getDevice(getImei());
+          db.recordPosition({
+            imei: getImei(),
+            latitude: data.latitude,
+            longitude: data.longitude,
+            speed: data.speed,
+            course: data.course,
+            voltageLevel: known ? known.voltageLevel : null,
+            gsmSignalStrength: known ? known.gsmSignalStrength : null,
+            recordedAt: data.timestamp,
+          }).catch((err) => log('error', `[DB] Gagal simpan posisi ${getImei()}: ${err.message}`));
+        }
       }
       // Paket GPS umumnya tidak wajib di-ACK, tapi beberapa firmware mengharapkannya.
       break;
     }
 
     case PROTOCOL.ALARM: {
-      log('warn', `[ALARM] ${remote} imei=${getImei()} lat=${data.latitude} lon=${data.longitude}`);
+      const verdict = checkFix(data);
+      log('warn', `[ALARM] ${remote} imei=${getImei()} jenis=${data.alarmType || '?'} lat=${data.latitude} lon=${data.longitude}${verdict ? ` (${verdict})` : ''}`);
       if (getImei()) {
-        updateDevice(getImei(), { connected: true, latitude: data.latitude, longitude: data.longitude, lastAlarm: new Date().toISOString() });
         const known = getDevice(getImei());
-        db.recordPosition({
+        const patch = { connected: true, lastAlarm: new Date().toISOString(), lastAlarmType: data.alarmType || null };
+        if (!verdict && isNewerThanKnown(getImei(), data.timestamp)) Object.assign(patch, positionPatch(data));
+        updateDevice(getImei(), patch);
+        db.recordAlarm({
           imei: getImei(),
-          latitude: data.latitude,
-          longitude: data.longitude,
+          alarmType: data.alarmType || 'unknown',
+          hasFix: !verdict,
+          latitude: verdict ? null : data.latitude,
+          longitude: verdict ? null : data.longitude,
           speed: data.speed,
           course: data.course,
-          voltageLevel: known ? known.voltageLevel : null,
-          gsmSignalStrength: known ? known.gsmSignalStrength : null,
-          recordedAt: data.timestamp,
-        }).catch((err) => log('error', `[DB] Gagal simpan posisi alarm ${getImei()}: ${err.message}`));
+          voltageLevel: data.voltageLevel ?? (known ? known.voltageLevel : null),
+          gsmSignalStrength: data.gsmSignalStrength ?? (known ? known.gsmSignalStrength : null),
+          // Alarm tanpa fix GPS tidak punya jam yang bisa dipercaya -> pakai jam server.
+          recordedAt: verdict ? new Date() : data.timestamp,
+        }).catch((err) => log('error', `[DB] Gagal simpan alarm ${getImei()}: ${err.message}`));
       }
       socket.write(buildAck(PROTOCOL.ALARM, serialNumber));
       break;
