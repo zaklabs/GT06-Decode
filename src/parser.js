@@ -260,11 +260,44 @@ function decodeStatus(content) {
   return result;
 }
 
+// Kode alarm di bit 5-3 byte terminal info. ASUMSI dari dokumen GT06 umum; hanya
+// "low battery" yang pernah terlihat dari perangkat asli (capture 2026-11-15).
+const ALARM_TYPES = { 0: 'normal', 1: 'shock', 2: 'power_cut', 3: 'low_battery', 4: 'sos' };
+
+/**
+ * Paket alarm 0x16. Layout (diverifikasi dari frame perangkat asli, panjang cocok dengan
+ * field length): GPS 18 byte | LBS length 1 byte (termasuk dirinya, = 9) | MCC 2, MNC 1,
+ * LAC 2, CellID 3 | terminal info 1, voltage 1, GSM 1, alarm/bahasa 2.
+ * Beda dengan 0x12 yang tidak punya byte LBS length.
+ */
+const GPS_BLOCK_LEN = 18; // 6 jam + 1 satelit + 4 lat + 4 lon + 1 speed + 2 course/status
+
 function decodeAlarm(content) {
-  const gps = decodeGpsLbs(content);
-  // byte terminal info + alarm/language umumnya di akhir; posisi persis tergantung firmware,
-  // jadi kita sertakan sisa mentahnya juga untuk jaga-jaga.
-  return gps;
+  // decodeGpsLbs melempar RangeError kalau content kurang dari 18 byte; server menangkapnya per frame.
+  const result = decodeGpsLbs(content.slice(0, GPS_BLOCK_LEN));
+  let offset = GPS_BLOCK_LEN;
+
+  if (content.length > offset) {
+    const lbsLen = content[offset];
+    if (lbsLen === 9 && content.length >= offset + lbsLen) {
+      result.lbs = decodeLbsBlock(content, offset + 1);
+      offset += lbsLen;
+    } else {
+      // Bentuk tak dikenal: jangan menebak, sisakan mentah supaya bisa diperiksa.
+      result.rawTail = content.slice(offset).toString('hex');
+      return result;
+    }
+  }
+
+  if (content.length - offset >= 5) {
+    const status = decodeStatus(content.slice(offset));
+    result.terminalInfo = status.terminalInfo;
+    result.voltageLevel = status.voltageLevel;
+    result.gsmSignalStrength = status.gsmSignalStrength;
+    result.alarmLanguage = status.alarmLanguage;
+    result.alarmType = ALARM_TYPES[status.terminalInfo.alarmBits] || `unknown_${status.terminalInfo.alarmBits}`;
+  }
+  return result;
 }
 
 module.exports = {
