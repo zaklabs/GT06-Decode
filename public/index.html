@@ -107,7 +107,7 @@
   .view[hidden] { display: none; }
 
   .tokens-panel { padding: 22px 24px; max-width: 860px; }
-  .tokens-panel .hint { color: var(--muted); font-size: 12.5px; line-height: 1.65; margin: 0 0 18px; }
+  .tokens-panel .hint, .registry-panel .hint { color: var(--muted); font-size: 12.5px; line-height: 1.65; margin: 0 0 18px; }
   code.inline { background: rgba(255,255,255,0.07); padding: 1px 6px; border-radius: 4px; font-family: monospace; }
 
   #tokenForm { display: flex; gap: 8px; margin-bottom: 18px; }
@@ -141,6 +141,58 @@
     padding: 4px 10px; border-radius: 5px; font-size: 11.5px; cursor: pointer;
   }
   .token-del:hover { background: rgba(240,89,106,0.1); }
+
+  /* --- Tab Perangkat (registrasi IMEI) --- */
+  .registry-panel { padding: 22px 24px; max-width: 980px; }
+  .notice {
+    background: rgba(210,168,63,0.08); border: 1px solid var(--yellow); border-radius: 6px;
+    padding: 9px 14px; margin-bottom: 18px; font-size: 12.5px; line-height: 1.55;
+  }
+  .reg-stats { display: flex; gap: 22px; margin: 0 0 14px; font-size: 12px; color: var(--muted); }
+  .reg-stats b { color: var(--text); font-weight: 600; }
+
+  #imeiForm {
+    display: grid; grid-template-columns: 1.3fr 1.5fr 0.9fr auto; gap: 8px 10px;
+    align-items: end; margin-bottom: 6px;
+  }
+  @media (max-width: 760px) { #imeiForm { grid-template-columns: 1fr; } }
+  #imeiForm label.fld span {
+    display: block; margin-bottom: 5px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px; font-weight: 600;
+  }
+  #imeiForm input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 5px; font-size: 13px; font-family: inherit;
+  }
+  #imeiForm input#imeiInput { font-family: monospace; letter-spacing: .5px; }
+  #imeiForm input:focus { outline: 1px solid var(--accent); }
+  #imeiForm button[type="submit"] {
+    background: var(--accent); color: #fff; border: none; padding: 9px 18px;
+    border-radius: 5px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .field-msg { min-height: 18px; margin: 0 0 20px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+  .field-msg.err { color: var(--red); }
+  .field-msg.warn { color: var(--yellow); }
+  .field-msg.ok { color: var(--green); }
+
+  .sub-title {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+    margin: 22px 0 8px; font-weight: 600;
+  }
+  .row-del {
+    background: transparent; border: 1px solid var(--red); color: var(--red);
+    padding: 4px 10px; border-radius: 5px; font-size: 11.5px; cursor: pointer;
+  }
+  .row-del:hover { background: rgba(240,89,106,0.1); }
+  .row-add {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    padding: 4px 10px; border-radius: 5px; font-size: 11.5px; cursor: pointer;
+  }
+  .row-add:hover { background: rgba(79,140,255,0.12); }
+  .badge {
+    display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 10px;
+    border: 1px solid var(--yellow); color: var(--yellow);
+  }
 </style>
 </head>
 <body>
@@ -156,6 +208,7 @@
 
 <nav class="tabs">
   <button class="tab-btn active" data-view="dashboard">Dashboard</button>
+  <button class="tab-btn" data-view="registry">Perangkat</button>
   <button class="tab-btn" data-view="tokens">Akses API</button>
 </nav>
 
@@ -192,6 +245,58 @@
     </div>
   </section>
 </main>
+
+<section id="view-registry" class="view" hidden>
+  <div class="registry-panel">
+    <div class="notice" role="note">
+      <b>Pratinjau desain.</b> Tab ini belum tersambung ke server: data yang dimasukkan hanya ada di halaman ini
+      dan hilang saat halaman dimuat ulang.
+    </div>
+
+    <p class="hint">
+      Daftarkan <b>IMEI</b> (15 digit, tercetak di badan perangkat atau kotaknya) beserta nama kendaraan.
+      Rencana ke depan: server hanya menerima perangkat yang IMEI-nya sudah terdaftar. Perangkat yang
+      terhubung tetapi belum terdaftar muncul di bagian <b>Terdeteksi, belum terdaftar</b> di bawah.
+    </p>
+
+    <div class="reg-stats">
+      <span>Terdaftar: <b id="statReg">0</b></span>
+      <span>Belum terdaftar (terdeteksi): <b id="statUnknown">0</b></span>
+    </div>
+
+    <form id="imeiForm" novalidate>
+      <label class="fld"><span>IMEI</span>
+        <input type="text" id="imeiInput" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="15 digit" />
+      </label>
+      <label class="fld"><span>Label / nama kendaraan</span>
+        <input type="text" id="imeiLabel" autocomplete="off" maxlength="100" placeholder="mis. Truk 01" />
+      </label>
+      <label class="fld"><span>Plat (opsional)</span>
+        <input type="text" id="imeiPlate" autocomplete="off" maxlength="20" placeholder="mis. BL 1234 AB" />
+      </label>
+      <button type="submit">Daftarkan</button>
+    </form>
+    <p id="imeiMsg" class="field-msg" role="status" aria-live="polite"></p>
+
+    <h3 class="sub-title">Perangkat terdaftar</h3>
+    <table>
+      <thead>
+        <tr><th></th><th>IMEI</th><th>Label</th><th>Plat</th><th>Didaftarkan (WIB)</th><th></th></tr>
+      </thead>
+      <tbody id="regRows"></tbody>
+    </table>
+    <div id="emptyReg" class="empty">Belum ada perangkat terdaftar.</div>
+
+    <h3 class="sub-title">Terdeteksi, belum terdaftar</h3>
+    <table>
+      <thead>
+        <tr><th></th><th>IMEI</th><th>Terakhir terlihat (WIB)</th><th></th></tr>
+      </thead>
+      <tbody id="unknownRows"></tbody>
+    </table>
+    <div id="emptyUnknown" class="empty">Tidak ada perangkat tak dikenal yang terdeteksi.</div>
+  </div>
+</section>
 
 <section id="view-tokens" class="view" hidden>
   <div class="tokens-panel">
@@ -275,7 +380,9 @@
   }
 
   function escapeHtml(s) {
-    return s.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; });
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
 
   function fmtCoord(v) { return typeof v === 'number' ? v.toFixed(6) : '-'; }
@@ -303,7 +410,7 @@
       var lastSeen = d.lastSeen ? fmtDateTime(d.lastSeen) : '-';
       return '<tr>' +
         '<td><span class="dev-dot ' + (d.connected ? 'on' : '') + '"></span></td>' +
-        '<td class="imei">' + (d.imei || '-') + '</td>' +
+        '<td class="imei">' + escapeHtml(d.imei || '-') + '</td>' +
         '<td>' + posHtml + '</td>' +
         '<td>' + (typeof d.speed === 'number' ? d.speed + ' km/h' : '<span class="muted">-</span>') + '</td>' +
         '<td>' + (typeof d.voltageLevel === 'number' ? d.voltageLevel + '/6' : '<span class="muted">-</span>') + '</td>' +
@@ -338,13 +445,18 @@
 
   // --- Tab switching ---
   var tabButtons = document.querySelectorAll('.tab-btn');
-  var views = { dashboard: document.getElementById('view-dashboard'), tokens: document.getElementById('view-tokens') };
+  var views = {
+    dashboard: document.getElementById('view-dashboard'),
+    registry: document.getElementById('view-registry'),
+    tokens: document.getElementById('view-tokens'),
+  };
   tabButtons.forEach(function (btn) {
     btn.addEventListener('click', function () {
       tabButtons.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       Object.keys(views).forEach(function (key) { views[key].hidden = key !== btn.dataset.view; });
       if (btn.dataset.view === 'tokens') loadTokens();
+      if (btn.dataset.view === 'registry') renderRegistry();
     });
   });
 
@@ -434,6 +546,126 @@
       .finally(function () { clearBtn.disabled = false; });
   });
 
+  // --- Tab "Perangkat": registrasi IMEI ---
+  // PRATINJAU DESAIN: belum ada panggilan API. Daftar hanya di memori halaman ini
+  // (sengaja tidak memakai localStorage supaya IMEI tidak tersimpan di browser).
+  var imeiForm = document.getElementById('imeiForm');
+  var imeiInput = document.getElementById('imeiInput');
+  var imeiLabel = document.getElementById('imeiLabel');
+  var imeiPlate = document.getElementById('imeiPlate');
+  var imeiMsg = document.getElementById('imeiMsg');
+  var regRows = document.getElementById('regRows');
+  var emptyReg = document.getElementById('emptyReg');
+  var unknownRows = document.getElementById('unknownRows');
+  var emptyUnknown = document.getElementById('emptyUnknown');
+  var statReg = document.getElementById('statReg');
+  var statUnknown = document.getElementById('statUnknown');
+  var registry = [];
+
+  // Checksum Luhn: IMEI standar 15 digit, digit terakhir = digit pemeriksa.
+  // Asumsi: IMEI perangkat GT06 mengikuti standar ini; kalau tidak cocok hanya jadi peringatan.
+  function luhnOk(digits) {
+    var sum = 0, alt = false;
+    for (var i = digits.length - 1; i >= 0; i--) {
+      var n = digits.charCodeAt(i) - 48;
+      if (alt) { n *= 2; if (n > 9) n -= 9; }
+      sum += n;
+      alt = !alt;
+    }
+    return sum % 10 === 0;
+  }
+
+  function checkImei(value) {
+    if (!value) return { level: 'empty', text: '' };
+    if (/\D/.test(value)) return { level: 'err', text: 'IMEI hanya boleh berisi angka.' };
+    if (value.length < 15) return { level: 'err', text: 'IMEI harus 15 digit (' + value.length + '/15).' };
+    if (value.length > 15) return { level: 'err', text: 'IMEI terlalu panjang, harus 15 digit.' };
+    if (registry.some(function (r) { return r.imei === value; })) return { level: 'err', text: 'IMEI ini sudah terdaftar.' };
+    if (!luhnOk(value)) return { level: 'warn', text: 'Digit pemeriksa (Luhn) tidak cocok — periksa lagi IMEI di badan perangkat. Tetap bisa didaftarkan.' };
+    return { level: 'ok', text: 'Format IMEI valid.' };
+  }
+
+  function showImeiMsg(res) {
+    imeiMsg.className = 'field-msg' + (res.level && res.level !== 'empty' ? ' ' + res.level : '');
+    imeiMsg.textContent = res.text || '';
+  }
+
+  function cleanImei(v) { return v.replace(/\s+/g, ''); }
+
+  function renderRegistry() {
+    if (views.registry.hidden) return;
+
+    var known = {};
+    registry.forEach(function (r) { known[r.imei] = true; });
+    var unknown = Object.values(devices)
+      .filter(function (d) { return d.imei && !known[d.imei]; })
+      .sort(function (a, b) { return new Date(b.lastSeen) - new Date(a.lastSeen); });
+
+    statReg.textContent = registry.length;
+    statUnknown.textContent = unknown.length;
+
+    emptyReg.style.display = registry.length === 0 ? 'block' : 'none';
+    regRows.innerHTML = registry.map(function (r) {
+      var live = devices[r.imei] && devices[r.imei].connected;
+      return '<tr>' +
+        '<td><span class="dev-dot ' + (live ? 'on' : '') + '"></span></td>' +
+        '<td class="imei">' + escapeHtml(r.imei) + '</td>' +
+        '<td>' + escapeHtml(r.label) + '</td>' +
+        '<td>' + (r.plate ? escapeHtml(r.plate) : '<span class="muted">-</span>') + '</td>' +
+        '<td class="muted">' + fmtDateTime(r.createdAt) + '</td>' +
+        '<td><button class="row-del" data-imei="' + escapeHtml(r.imei) + '">Hapus</button></td>' +
+        '</tr>';
+    }).join('');
+
+    emptyUnknown.style.display = unknown.length === 0 ? 'block' : 'none';
+    unknownRows.innerHTML = unknown.map(function (d) {
+      return '<tr>' +
+        '<td><span class="dev-dot ' + (d.connected ? 'on' : '') + '"></span></td>' +
+        '<td class="imei">' + escapeHtml(d.imei) + ' <span class="badge">belum terdaftar</span></td>' +
+        '<td class="muted">' + (d.lastSeen ? fmtDateTime(d.lastSeen) : '-') + '</td>' +
+        '<td><button class="row-add" data-imei="' + escapeHtml(d.imei) + '">Daftarkan</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  imeiInput.addEventListener('input', function () {
+    showImeiMsg(checkImei(cleanImei(imeiInput.value)));
+  });
+
+  imeiForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var imei = cleanImei(imeiInput.value);
+    var label = imeiLabel.value.trim();
+    var plate = imeiPlate.value.trim();
+
+    var res = checkImei(imei);
+    if (res.level === 'empty') res = { level: 'err', text: 'IMEI wajib diisi.' };
+    if (res.level === 'err') { showImeiMsg(res); imeiInput.focus(); return; }
+    if (!label) { showImeiMsg({ level: 'err', text: 'Label / nama kendaraan wajib diisi.' }); imeiLabel.focus(); return; }
+
+    registry.unshift({ imei: imei, label: label, plate: plate, createdAt: new Date().toISOString() });
+    imeiForm.reset();
+    showImeiMsg({ level: 'ok', text: 'Ditambahkan di halaman ini (pratinjau) — belum dikirim ke server.' });
+    renderRegistry();
+  });
+
+  regRows.addEventListener('click', function (e) {
+    var btn = e.target.closest('.row-del');
+    if (!btn) return;
+    if (!confirm('Hapus IMEI ini dari daftar (pratinjau)?')) return;
+    registry = registry.filter(function (r) { return r.imei !== btn.dataset.imei; });
+    renderRegistry();
+  });
+
+  unknownRows.addEventListener('click', function (e) {
+    var btn = e.target.closest('.row-add');
+    if (!btn) return;
+    imeiInput.value = btn.dataset.imei;
+    showImeiMsg(checkImei(btn.dataset.imei));
+    imeiForm.scrollIntoView({ block: 'nearest' });
+    imeiLabel.focus();
+  });
+
   function connect() {
     var es = new EventSource('/api/events');
 
@@ -450,6 +682,7 @@
       var d = JSON.parse(e.data);
       devices[d.imei] = d;
       renderDevices();
+      renderRegistry();
     });
 
     es.addEventListener('clear', function () {
