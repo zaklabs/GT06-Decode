@@ -71,7 +71,7 @@ docker compose down
 
 ## Menjalankan tanpa Docker (development)
 
-Butuh Node.js 18+ (direkomendasikan 22 LTS, sesuai `Dockerfile`).
+Butuh Node.js 26 (LTS), sesuai `Dockerfile` dan `engines` di `package.json`, serta PostgreSQL untuk fitur penyimpanan/API token (tanpa PostgreSQL, server tetap jalan dan UI bisa dibuka, tetapi penyimpanan posisi, tab Akses API, dan riwayat posisi akan error di log).
 
 ```bash
 npm start

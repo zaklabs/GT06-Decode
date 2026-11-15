@@ -10,7 +10,10 @@
     "reload-devices": "node scripts/reload-devices.js"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=26"
+  },
   "dependencies": {
-    "pg": "^8.13.1"
+    "pg": "^8.23.1"
   }
 }
