@@ -10,6 +10,7 @@ const {
 const tokens = require('./tokens');
 const db = require('./db');
 const auth = require('./auth');
+const adminApi = require('./adminApi');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -174,8 +175,9 @@ function handleExternal(req, res, url, pathname) {
   }
   tokens
     .verifyToken(getBearerToken(req))
-    .then((valid) => {
-      if (!valid) return sendJson(res, 401, { error: 'Token tidak valid atau hilang' });
+    .then((verified) => {
+      // Hanya token ber-scope "external"; token "admin" (untuk /api/admin/*) tidak berlaku di sini.
+      if (!verified || verified.scope !== 'external') return sendJson(res, 401, { error: 'Token tidak valid atau hilang' });
 
       if (pathname === '/api/external/devices') return sendJson(res, 200, getDevices());
       if (pathname === '/api/external/events') return streamEvents(req, res, { includeLogs: false });
@@ -210,6 +212,12 @@ function start() {
       pathname === '/api/external/positions'
     ) {
       handleExternal(req, res, url, pathname);
+      return;
+    }
+
+    // --- API admin untuk aplikasi lain (GPS-Dashboard): Basic Auth admin atau token scope "admin".
+    if (pathname.startsWith('/api/admin/')) {
+      adminApi.handle(req, res, url, pathname).catch((err) => sendServerError(res, 'API admin', err));
       return;
     }
 

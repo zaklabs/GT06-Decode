@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "example": "node examples/decode-sample.js",
     "simulate": "node examples/simulate-device.js",
-    "reload-devices": "node scripts/reload-devices.js"
+    "reload-devices": "node scripts/reload-devices.js",
+    "test": "node --test test/"
   },
   "license": "MIT",
   "engines": {

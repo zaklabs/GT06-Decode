@@ -80,4 +80,4 @@ function requireAdmin(req, res) {
   return false;
 }
 
-module.exports = { requireAdmin, isEnabled, configWarning, safeEqual, parseBasicAuth };
+module.exports = { requireAdmin, checkCredentials, isEnabled, configWarning, safeEqual, parseBasicAuth };
