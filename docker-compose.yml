@@ -55,6 +55,8 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       GT06_MAX_CONNECTIONS: ${GT06_MAX_CONNECTIONS:-1000}
+      # Daftar IMEI yang diizinkan: off | log (default, hanya mencatat) | on (tolak yang tidak terdaftar)
+      GT06_IMEI_ENFORCE: ${GT06_IMEI_ENFORCE:-log}
     volumes:
       - pgbackups:/backups
     logging:

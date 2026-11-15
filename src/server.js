@@ -5,6 +5,7 @@ const { crc16X25 } = require('./crc');
 const { splitFrames, decodeFrame, PROTOCOL } = require('./parser');
 const { log, updateDevice, getDevice } = require('./logger');
 const db = require('./db');
+const registry = require('./registry');
 
 const PORT = process.env.GT06_PORT ? Number(process.env.GT06_PORT) : 5023;
 const HOST = process.env.GT06_HOST || '0.0.0.0';
@@ -47,6 +48,33 @@ function buildAck(protocolNumber, serialNumber) {
   return packet;
 }
 
+// IMEI -> kumpulan socket yang sudah LOGIN. Dipakai untuk memutus perangkat yang
+// dihapus/dinonaktifkan dari daftar IMEI saat mode "on" (lihat registry.events).
+const socketsByImei = new Map();
+
+function trackSocket(imei, socket) {
+  if (!socketsByImei.has(imei)) socketsByImei.set(imei, new Set());
+  socketsByImei.get(imei).add(socket);
+}
+
+function untrackSocket(imei, socket) {
+  const set = socketsByImei.get(imei);
+  if (!set) return;
+  set.delete(socket);
+  if (set.size === 0) socketsByImei.delete(imei);
+}
+
+registry.events.on('changed', () => {
+  if (registry.MODE !== 'on') return;
+  for (const [imei, set] of socketsByImei) {
+    if (registry.statusOf(imei) === 'registered') continue;
+    for (const socket of set) {
+      log('warn', `[REG] IMEI ${imei} tidak lagi diizinkan, koneksi diputus`);
+      socket.destroy();
+    }
+  }
+});
+
 const server = net.createServer((socket) => {
   socket.setKeepAlive(true, 60000);
 
@@ -82,6 +110,7 @@ const server = net.createServer((socket) => {
     }
 
     for (const frame of frames) {
+      if (socket.destroyed) break;
       let packet;
       try {
         packet = decodeFrame(frame);
@@ -95,7 +124,11 @@ const server = net.createServer((socket) => {
         continue;
       }
 
-      handlePacket(socket, remote, packet, (v) => { imei = v; }, () => imei);
+      handlePacket(socket, remote, packet, (v) => {
+        if (imei && imei !== v) untrackSocket(imei, socket);
+        imei = v;
+        trackSocket(v, socket);
+      }, () => imei);
     }
   });
 
@@ -104,6 +137,7 @@ const server = net.createServer((socket) => {
     if (hasData) {
       log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
       if (imei) {
+        untrackSocket(imei, socket);
         updateDevice(imei, { connected: false });
         db.setDeviceOffline(imei).catch((err) => log('error', `[DB] Gagal update status offline ${imei}: ${err.message}`));
       }
@@ -120,6 +154,12 @@ function handlePacket(socket, remote, packet, setImei, getImei) {
 
   switch (protocolNumber) {
     case PROTOCOL.LOGIN: {
+      const verdict = registry.evaluateLogin(data.imei);
+      if (!verdict.allow) {
+        log('warn', `[REG] LOGIN ditolak dari ${remote} imei=${JSON.stringify(data.imei)} status=${verdict.status}`);
+        socket.destroy();
+        break;
+      }
       setImei(data.imei);
       log('info', `[LOGIN] ${remote} imei=${data.imei} serial=${serialNumber}`);
       updateDevice(data.imei, { ip: remote, connected: true });
@@ -223,6 +263,7 @@ async function main() {
   });
 
   require('./web').start();
+  registry.start();
   db.startRetentionSchedule();
   require('./backup').startBackupSchedule();
 }
