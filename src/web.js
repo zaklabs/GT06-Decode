@@ -3,7 +3,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { bus, log, getHistory, clearHistory, getDevices, seedDevice } = require('./logger');
+const { log, clearHistory, getDevices, seedDevice } = require('./logger');
+const {
+  IMEI_RE, sendJson, sendServerError, readJsonBody, getBearerToken, isCrossSiteWrite, streamEvents,
+} = require('./httpUtil');
 const tokens = require('./tokens');
 const db = require('./db');
 const auth = require('./auth');
@@ -13,22 +16,6 @@ const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
 
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(body));
-}
-
-/** Catat detail error di log server, kirim pesan generik ke klien (jangan bocorkan err.message DB). */
-function sendServerError(res, context, err) {
-  log('error', `[WEB] ${context}: ${err && err.message}`);
-  if (res.headersSent) {
-    res.end();
-    return;
-  }
-  sendJson(res, 500, { error: 'Terjadi kesalahan internal server' });
-}
-
-const IMEI_RE = /^[0-9a-f]{1,20}$/i; // sesuai kolom VARCHAR(20); IMEI GT06 di-decode dari BCD/hex
 const MAX_POSITIONS_LIMIT = 20000;
 const DEFAULT_POSITIONS_LIMIT = 5000;
 
@@ -36,72 +23,6 @@ const DEFAULT_POSITIONS_LIMIT = 5000;
 function parseDateParam(value) {
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => {
-      data += chunk;
-      if (data.length > 1e6) req.destroy(new Error('Body terlalu besar'));
-    });
-    req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (err) {
-        reject(err);
-      }
-    });
-    req.on('error', reject);
-  });
-}
-
-function getBearerToken(req) {
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
-  return match ? match[1].trim() : null;
-}
-
-/**
- * Stream event SSE ke `res`. Dashboard internal menerima `log`/`device`/`clear`;
- * API eksternal (`includeLogs: false`) hanya menerima `device` -- log operasional
- * (IP device, error DB, dsb.) tidak dibagikan ke aplikasi lain.
- */
-function streamEvents(req, res, { includeLogs = true } = {}) {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-  });
-  res.write('\n');
-
-  // kirim histori log & device yang sudah ada supaya tab/consumer baru langsung terisi
-  if (includeLogs) {
-    for (const entry of getHistory()) {
-      res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
-    }
-  }
-  for (const device of getDevices()) {
-    res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
-  }
-
-  const onLog = (entry) => res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
-  const onDevice = (device) => res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
-  const onClear = () => res.write('event: clear\ndata: {}\n\n');
-
-  if (includeLogs) {
-    bus.on('log', onLog);
-    bus.on('clear', onClear);
-  }
-  bus.on('device', onDevice);
-
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
-
-  req.on('close', () => {
-    clearInterval(keepAlive);
-    bus.off('log', onLog);
-    bus.off('device', onDevice);
-    bus.off('clear', onClear);
-  });
 }
 
 /** Route yang wajib Basic Auth admin (dashboard internal, manajemen token, endpoint internal). */
@@ -295,6 +216,10 @@ function start() {
     // --- Dashboard internal, manajemen token & endpoint internal -- wajib Basic Auth admin.
     if (isAdminRoute(pathname)) {
       if (!auth.requireAdmin(req, res)) return;
+      if (isCrossSiteWrite(req)) {
+        sendJson(res, 403, { error: 'Origin permintaan tidak diizinkan' });
+        return;
+      }
       handleAdmin(req, res, pathname);
       return;
     }
