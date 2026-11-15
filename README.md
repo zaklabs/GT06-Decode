@@ -28,7 +28,7 @@ Server TCP untuk menerima, decode, dan memantau data dari perangkat GPS tracker 
 ├── public/
 │   └── index.html         # Halaman dashboard (log terminal + tabel device + tab Akses API)
 ├── db/
-│   └── schema.sql         # Skema tabel `devices`, `positions`, `api_tokens` -- auto-jalan saat container pertama kali dibuat
+│   └── migrations/        # Migrasi SQL bernomor (001-baseline, 002-token-scope, 003-registered-devices) -- dijalankan otomatis oleh src/migrate.js saat server start
 ├── examples/
 │   ├── decode-sample.js    # Contoh decode paket GT06 secara standalone
 │   └── simulate-device.js  # Simulator device (kirim data ke server manapun)
@@ -51,7 +51,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Ini akan menjalankan 2 container: `gt06-postgres` (database) dan `gt06-server` (TCP server + dashboard). Skema tabel dibuat otomatis saat pertama kali dijalankan (lewat `db/schema.sql`).
+Ini akan menjalankan 2 container: `gt06-postgres` (database) dan `gt06-server` (TCP server + dashboard). Skema tabel dibuat dan diperbarui otomatis oleh server saat start (lewat `db/migrations/`), baik untuk database baru maupun yang sudah berjalan.
 
 - Port device GT06: `5023` (TCP) — dipublish ke semua interface host (device konek dari luar)
 - Port dashboard web + API: `8080` di dalam container, dipublish ke host sebagai `127.0.0.1:8083` (default — hanya bisa diakses dari server itu sendiri; lihat [Keamanan](#keamanan))
@@ -83,6 +83,14 @@ Contoh decode paket standalone (tanpa perlu server/koneksi apapun):
 npm run example
 ```
 
+Tes otomatis (`node:test`):
+
+```bash
+npm test                                   # tes unit; tes integrasi dilewati otomatis
+# tes integrasi butuh PostgreSQL KHUSUS TES -- tabelnya dikosongkan! Hanya jalan jika PGDATABASE berakhiran _test
+PGHOST=... PGUSER=gt06 PGPASSWORD=... PGDATABASE=gt06_test npm test
+```
+
 ## Konfigurasi (environment variable)
 
 | Variabel     | Default     | Keterangan                              |
@@ -104,6 +112,7 @@ npm run example
 | `ADMIN_PASSWORD` | *(wajib diisi, tanpa default)* | Password Basic Auth admin. Kalau kosong, dashboard & manajemen token dinonaktifkan (`503`); ingest & `/api/external/*` tetap jalan |
 | `WEB_BIND`   | `127.0.0.1` | (docker compose saja) interface host tempat port web dipublish. `0.0.0.0` = semua interface |
 | `GT06_MAX_CONNECTIONS` | `1000` | Batas koneksi TCP GT06 simultan |
+| `GT06_IMEI_ENFORCE` | `log` | Daftar IMEI yang diizinkan: `off` (tidak diperiksa), `log` (semua diterima, yang belum terdaftar dicatat di log), `on` (hanya IMEI terdaftar & aktif yang diterima; lainnya diputus). Lihat [Daftar IMEI](#daftar-imei-dan-api-admin) |
 | `GT06_MAX_BUFFER_BYTES` | `131072` | Batas sisa buffer per socket TCP (jaring pengaman) |
 | `GT06_LOGIN_TIMEOUT_MS` | `60000` | Koneksi TCP yang tidak mengirim paket LOGIN dalam waktu ini diputus |
 
@@ -146,6 +155,24 @@ curl -H "Authorization: Bearer $GT06_API_TOKEN" http://gt06-server:8080/api/exte
 
 > Endpoint `/api/devices`, `/api/events`, `/api/logs`, `/api/tokens*`, dan `/api/internal/*` (tanpa `/external/`) khusus dashboard internal & admin — wajib Basic Auth `ADMIN_USER`/`ADMIN_PASSWORD`, bukan Bearer token. `EventSource` di browser tidak bisa kirim header custom, tapi kredensial Basic Auth yang sudah dimasukkan otomatis ikut terkirim untuk request same-origin.
 
+## Daftar IMEI dan API admin
+
+Daftar IMEI perangkat yang diizinkan disimpan di tabel `registered_devices` dan dikelola lewat **API admin** (`/api/admin/*`), yang dipanggil dari sisi server oleh aplikasi lain seperti GPS-Dashboard. Kontrak lengkap: [docs/admin-api.md](docs/admin-api.md).
+
+- Autentikasi: Basic Auth `ADMIN_USER`/`ADMIN_PASSWORD`, atau token Bearer ber-**scope `admin`**. Tanpa `ADMIN_PASSWORD` seluruh API ini nonaktif (`503`).
+- Token punya dua scope: `external` (`/api/external/*`, perilaku lama) dan `admin` (`/api/admin/*`). Keduanya tidak saling berlaku. Token `admin` hanya bisa dibuat dengan Basic Auth, dan token `admin` tidak bisa membuat/menghapus token `admin` lain.
+- Mulai dari `GT06_IMEI_ENFORCE=log` (default): semua perangkat tetap diterima dan IMEI yang belum terdaftar muncul sebagai peringatan `[REG]` di log. Setelah semua perangkat aktif terdaftar (`POST /api/admin/registry/import-seen` mendaftarkan semua yang pernah terlihat), ganti ke `on`.
+- Di mode `on`, perangkat yang dihapus/dinonaktifkan dari daftar langsung diputus. Jika database belum siap, mode `on` menolak LOGIN sampai daftar termuat (perangkat akan mencoba konek ulang).
+- LOGIN dengan IMEI kosong atau bukan heksadesimal selalu ditolak, apa pun modenya.
+
+Membuat token admin pertama (sekali, oleh pemilik server; simpan hasilnya di env server aplikasi pemanggil, jangan ke browser):
+
+```bash
+curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' \
+  -d '{"label":"gps-dashboard admin","scope":"admin"}' \
+  http://127.0.0.1:8083/api/admin/tokens
+```
+
 ## Keamanan
 
 - **Basic Auth admin**: dashboard (`/`), `/api/devices`, `/api/events`, `/api/logs`, `/api/tokens*`, `/api/internal/*` wajib `ADMIN_USER`/`ADMIN_PASSWORD` (dibandingkan constant-time). Tidak ada password default; tanpa `ADMIN_PASSWORD` semua route itu membalas `503`.
@@ -155,6 +182,7 @@ curl -H "Authorization: Bearer $GT06_API_TOKEN" http://gt06-server:8080/api/exte
 - **Token API** hanya disimpan sebagai hash SHA-256. Buat satu token per aplikasi/lingkungan agar bisa dicabut terpisah.
 - **Jangan commit dump/backup database** (`*.dump` sudah di-ignore) — isinya IMEI dan riwayat lokasi.
 - TCP GT06 dibatasi `GT06_MAX_CONNECTIONS`, `GT06_MAX_BUFFER_BYTES`, dan `GT06_LOGIN_TIMEOUT_MS`.
+- Permintaan yang mengubah data (POST/PATCH/DELETE) ke route admin dengan Basic Auth ditolak (`403`) bila header `Origin`-nya bukan host yang sama (proteksi CSRF). Klien tanpa `Origin` (curl, server lain) tidak terpengaruh.
 
 ### Migrasi server produksi yang sudah berjalan
 
@@ -164,6 +192,7 @@ curl -H "Authorization: Bearer $GT06_API_TOKEN" http://gt06-server:8080/api/exte
 4. **Rotasi semua token API**: sebelum versi ini `/api/tokens` bisa dipanggil tanpa autentikasi, jadi token bisa saja dibuat pihak lain. Buka tab Akses API, hapus semua token lama (perhatikan label/`last_used_at` yang tidak dikenal), buat token baru, dan perbarui di GPS-Dashboard.
 5. Konsumen `/api/external/events` kini hanya menerima event `device` (sebelumnya juga `log`/`clear`). Kalau ada konsumen yang bergantung pada event `log`, sesuaikan.
 6. `npm run reload-devices` di dalam container otomatis memakai `ADMIN_USER`/`ADMIN_PASSWORD` dari env container.
+7. **Update yang menambah daftar IMEI & API admin:** `docker compose up -d --build` lalu server menjalankan migrasi 001-003 sendiri saat start (data lama aman; token lama otomatis berscope `external`). Mode awal `GT06_IMEI_ENFORCE=log` tidak menolak perangkat mana pun. Mount `db/schema.sql` ke container Postgres dihapus dari `docker-compose.yml`, karena skema kini dikelola migrasi.
 
 ## Konfigurasi perangkat GT06 (SMS command)
 
@@ -191,7 +220,7 @@ Setelah dikonfigurasi, pantau `docker compose logs -f` atau dashboard web — ur
 
 Setiap event Login/Heartbeat/GPS/Alarm otomatis disimpan ke PostgreSQL lewat [src/db.js](src/db.js) — dipanggil dari [src/server.js](src/server.js), fire-and-forget (kalau database sempat down, ingest GT06 tetap jalan normal, error cuma dicatat di log).
 
-Dua tabel (lihat [db/schema.sql](db/schema.sql)):
+Tabel utama (lihat [db/migrations/](db/migrations/); tabel `api_tokens` dan `registered_devices` dijelaskan di bagian API):
 
 - **`devices`** — 1 baris per device, state TERKINI (posisi, kecepatan, status online, terakhir dilihat). Dipakai aplikasi dashboard/peta terpisah untuk render marker.
 - **`positions`** — riwayat posisi, append-only. Dipakai untuk gambar rute/playback di peta. Kolom `voltage_level`/`gsm_signal_strength` menyimpan nilai TERAKHIR yang diketahui dari paket Heartbeat (0x13) saat posisi itu dicatat — paket GPS sendiri tidak membawa info ini, jadi bukan pembacaan persis di detik yang sama, cuma nilai terakhir yang tersedia di memori server saat itu (`null` kalau belum pernah ada heartbeat, atau untuk baris lama sebelum kolom ini ditambahkan).
@@ -202,10 +231,7 @@ Dua tabel (lihat [db/schema.sql](db/schema.sql)):
 
 > Catatan: pengecekan jadwal jalan tiap jam (bukan menghitung mundur presis ke tanggal target), jadi kalau server sempat mati pas jadwalnya lewat, backup akan otomatis "menyusul" di jam berikutnya setelah server nyala lagi — tidak akan terlewat begitu saja.
 
-> **Migrasi untuk database yang sudah jalan lama**: `db/schema.sql` cuma otomatis jalan saat volume Postgres pertama kali dibuat. Kalau database Anda sudah ada sebelum kolom `voltage_level`/`gsm_signal_strength` ditambahkan ke tabel `positions`, jalankan manual:
-> ```bash
-> docker compose exec postgres psql -U gt06 -d gt06 -c "ALTER TABLE positions ADD COLUMN IF NOT EXISTS voltage_level SMALLINT; ALTER TABLE positions ADD COLUMN IF NOT EXISTS gsm_signal_strength SMALLINT;"
-> ```
+> **Migrasi skema**: dikelola otomatis oleh [src/migrate.js](src/migrate.js). Saat server start, berkas `db/migrations/NNN-*.sql` yang belum tercatat di tabel `schema_migrations` dijalankan berurutan (satu transaksi per berkas, dengan advisory lock). Tidak perlu `ALTER` manual lagi. Jika database belum siap saat start, migrasi dicoba ulang tiap 30 detik tanpa menghentikan penerimaan TCP. Untuk menambah perubahan skema, buat berkas baru dengan nomor berikutnya dan tulis secara idempoten (`IF NOT EXISTS`).
 
 **Penting — dashboard & API TIDAK membaca dari database secara langsung.** Tabel `devices`/`positions` cuma ditulis (fire-and-forget) untuk histori/dashboard eksternal; dashboard web ini dan endpoint `/api/devices`, `/api/events`, `/api/external/devices`, `/api/external/events` menampilkan state di **memori proses** yang cuma terisi dari device yang benar-benar konek lewat TCP. Konsekuensinya: setelah restore data (mis. dari server produksi) atau restart server, dashboard akan tampak kosong sampai device asli konek lagi — walau datanya sudah ada di database.
 
