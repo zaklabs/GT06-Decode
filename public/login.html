@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Masuk &middot; GT06 Server Dashboard</title>
+<style>
+  /* Palet disamakan dengan public/index.html */
+  :root {
+    --bg: #0d1117;
+    --panel: #11161d;
+    --border: #232b36;
+    --text: #d7dee7;
+    --muted: #7d8a9c;
+    --green: #3fb950;
+    --cyan: #58c4dc;
+    --yellow: #d2a83f;
+    --red: #f0596a;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  body {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px;
+    background:
+      radial-gradient(900px 420px at 50% -10%, rgba(79,140,255,0.10), transparent 70%),
+      var(--bg);
+  }
+
+  .login-wrap { width: 100%; max-width: 380px; }
+
+  .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .brand h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 24px 24px 20px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+  .card .sub { margin: 0 0 18px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+
+  .notice {
+    background: rgba(210,168,63,0.08); border: 1px solid var(--yellow); border-radius: 6px;
+    padding: 9px 12px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;
+  }
+
+  label.fld { display: block; margin-bottom: 14px; }
+  label.fld > span {
+    display: block; margin-bottom: 5px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px; font-weight: 600;
+  }
+  .input-row { position: relative; }
+  input[type="text"], input[type="password"] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 11px; border-radius: 5px; font-size: 13.5px; font-family: inherit;
+  }
+  input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  input[aria-invalid="true"] { border-color: var(--red); }
+  .input-row input { padding-right: 88px; }
+  .toggle-pw {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    background: transparent; border: none; color: var(--muted); font-size: 11.5px;
+    padding: 5px 8px; border-radius: 4px; cursor: pointer;
+  }
+  .toggle-pw:hover { color: var(--text); }
+  .toggle-pw:focus-visible { outline: 1px solid var(--accent); }
+
+  .caps { margin: -8px 0 12px; font-size: 11.5px; color: var(--yellow); }
+  .caps[hidden] { display: none; }
+
+  .msg { min-height: 18px; margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; }
+  .msg.err { color: var(--red); }
+  .msg.info { color: var(--cyan); }
+
+  button.submit {
+    width: 100%; background: var(--accent); color: #fff; border: none; padding: 10px 16px;
+    border-radius: 5px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  }
+  button.submit:hover { filter: brightness(1.08); }
+  button.submit:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  button.submit:disabled { opacity: .6; cursor: default; }
+
+  .foot { margin: 16px 0 0; text-align: center; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+  .foot b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="brand">
+    <span class="status-dot" aria-hidden="true"></span>
+    <h1>GT06 Server Dashboard</h1>
+  </div>
+
+  <main class="card">
+    <h2>Masuk admin</h2>
+    <p class="sub">Dashboard operasional untuk log perangkat, registrasi IMEI, dan akses API.</p>
+
+    <div class="notice" role="note">
+      <b>Pratinjau desain.</b> Halaman ini belum tersambung ke server &mdash; tidak ada data yang dikirim atau disimpan.
+    </div>
+
+    <form id="loginForm" novalidate>
+      <label class="fld">
+        <span>Username</span>
+        <input type="text" id="username" name="username" autocomplete="username"
+               autocapitalize="none" spellcheck="false" maxlength="100" autofocus />
+      </label>
+
+      <label class="fld">
+        <span>Password</span>
+        <div class="input-row">
+          <input type="password" id="password" name="password" autocomplete="current-password" maxlength="256" />
+          <button type="button" class="toggle-pw" id="togglePw" aria-controls="password" aria-pressed="false">Tampilkan</button>
+        </div>
+      </label>
+      <p class="caps" id="capsWarn" hidden>Caps Lock aktif.</p>
+
+      <p class="msg" id="msg" role="alert" aria-live="assertive"></p>
+
+      <button type="submit" class="submit" id="submitBtn">Masuk</button>
+    </form>
+  </main>
+
+  <p class="foot">
+    Halaman ini khusus <b>admin operasional</b>.<br />
+    Tampilan pengguna akhir ada di aplikasi <b>GPS-Dashboard</b>.
+  </p>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('loginForm');
+  var username = document.getElementById('username');
+  var password = document.getElementById('password');
+  var togglePw = document.getElementById('togglePw');
+  var capsWarn = document.getElementById('capsWarn');
+  var msg = document.getElementById('msg');
+
+  function setMsg(kind, text) {
+    msg.className = 'msg' + (kind ? ' ' + kind : '');
+    msg.textContent = text || '';
+  }
+
+  togglePw.addEventListener('click', function () {
+    var show = password.type === 'password';
+    password.type = show ? 'text' : 'password';
+    togglePw.textContent = show ? 'Sembunyikan' : 'Tampilkan';
+    togglePw.setAttribute('aria-pressed', show ? 'true' : 'false');
+    password.focus();
+  });
+
+  password.addEventListener('keydown', function (e) {
+    capsWarn.hidden = !(e.getModifierState && e.getModifierState('CapsLock'));
+  });
+  password.addEventListener('keyup', function (e) {
+    capsWarn.hidden = !(e.getModifierState && e.getModifierState('CapsLock'));
+  });
+  password.addEventListener('blur', function () { capsWarn.hidden = true; });
+
+  [username, password].forEach(function (el) {
+    el.addEventListener('input', function () {
+      el.removeAttribute('aria-invalid');
+      setMsg('', '');
+    });
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    username.removeAttribute('aria-invalid');
+    password.removeAttribute('aria-invalid');
+
+    if (!username.value.trim()) {
+      username.setAttribute('aria-invalid', 'true');
+      setMsg('err', 'Username wajib diisi.');
+      username.focus();
+      return;
+    }
+    if (!password.value) {
+      password.setAttribute('aria-invalid', 'true');
+      setMsg('err', 'Password wajib diisi.');
+      password.focus();
+      return;
+    }
+
+    // Belum ada panggilan API: ini hanya pratinjau tampilan. Tidak ada yang dikirim/disimpan.
+    setMsg('info', 'Pratinjau desain: login belum tersambung ke server.');
+  });
+})();
+</script>
+</body>
+</html>
