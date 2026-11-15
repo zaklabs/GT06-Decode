@@ -57,6 +57,9 @@ services:
       GT06_MAX_CONNECTIONS: ${GT06_MAX_CONNECTIONS:-1000}
       # Daftar IMEI yang diizinkan: off | log (default, hanya mencatat) | on (tolak yang tidak terdaftar)
       GT06_IMEI_ENFORCE: ${GT06_IMEI_ENFORCE:-log}
+      # Aturan perjalanan di /api/external/trips (lihat README)
+      GT06_TRIP_STOP_SECONDS: ${GT06_TRIP_STOP_SECONDS:-180}
+      GT06_TRIP_MIN_SPEED_KMH: ${GT06_TRIP_MIN_SPEED_KMH:-3}
     volumes:
       - pgbackups:/backups
     logging:

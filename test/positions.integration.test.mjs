@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import net from 'node:net';
+import crypto from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 const { crc16X25 } = require('../src/crc.js');
@@ -56,7 +57,7 @@ const alarm = (o, terminalInfo = 0x58, serial = 3) => frame(Buffer.concat([
 ]));
 
 describe('penyimpanan posisi dan alarm', { skip }, () => {
-  let child; let tcp; let socket; let db;
+  let child; let tcp; let socket; let db; let base_url; let basic; let extToken;
   const base = new Date(Math.floor((Date.now() - 3600 * 1000) / 1000) * 1000); // presisi detik seperti paket perangkat
   const at = (min) => new Date(base.getTime() + min * 60000);
 
@@ -74,8 +75,12 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
 
   before(async () => {
     tcp = await freePort();
+    const web = await freePort();
+    base_url = `http://127.0.0.1:${web}`;
+    const adminPassword = crypto.randomBytes(12).toString('hex');
+    basic = 'Basic ' + Buffer.from(`admin:${adminPassword}`).toString('base64');
     child = spawn(process.execPath, ['src/server.js'], {
-      env: { ...process.env, GT06_PORT: String(tcp), GT06_HOST: '127.0.0.1', WEB_PORT: String(await freePort()), WEB_HOST: '127.0.0.1', ADMIN_PASSWORD: '', BACKUP: 'off', GT06_IMEI_ENFORCE: 'off' },
+      env: { ...process.env, GT06_PORT: String(tcp), GT06_HOST: '127.0.0.1', WEB_PORT: String(web), WEB_HOST: '127.0.0.1', ADMIN_USER: 'admin', ADMIN_PASSWORD: adminPassword, BACKUP: 'off', GT06_IMEI_ENFORCE: 'off' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await new Promise((resolve, reject) => {
@@ -86,6 +91,11 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
     db = new Client();
     await db.connect();
     await db.query('TRUNCATE positions, alarms, devices CASCADE');
+    await db.query('DELETE FROM api_tokens');
+    const created = await fetch(`${base_url}/api/admin/tokens`, {
+      method: 'POST', headers: { Authorization: basic, 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'tes trips' }),
+    });
+    extToken = (await created.json()).token;
     socket = net.connect(tcp, '127.0.0.1');
     socket.on('error', () => {});
     await send(login());
@@ -95,7 +105,7 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
   after(async () => {
     if (socket) socket.destroy();
     if (child) { child.removeAllListeners('exit'); child.kill('SIGTERM'); }
-    if (db) { await db.query('TRUNCATE positions, alarms, devices CASCADE'); await db.end(); }
+    if (db) { await db.query('TRUNCATE positions, alarms, devices CASCADE'); await db.query('DELETE FROM api_tokens'); await db.end(); }
   });
 
   it('titik lama yang dikirim belakangan tidak menimpa posisi terakhir, tapi tetap masuk jejak', async () => {
@@ -142,5 +152,69 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
     await send(alarm({ date: at(40), lat: 0, lon: 0, speed: 0, fixed: false }, 0x50));
     const row = await waitFor(async () => (await q("SELECT * FROM alarms WHERE alarm_type = 'unknown_2' OR latitude IS NULL"))[0]);
     assert.equal(row.latitude, null);
+  });
+
+  describe('GET /api/external/trips', () => {
+    const M = 111194.9;
+    const trips = (qs, token = extToken) => fetch(`${base_url}/api/external/trips?${qs}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const win = () => `imei=${IMEI}&from=${encodeURIComponent(at(-130).toISOString())}&to=${encodeURIComponent(at(-60).toISOString())}`;
+
+    it('mengirim dua perjalanan lewat TCP lalu API menghitung jarak, jam tempuh, dan perhentian', async () => {
+      // Perjalanan 1: 60 dtk @36 km/jam lurus ke utara + titik penutup speed 0. Perjalanan 2: 20 menit kemudian.
+      for (const startMin of [-120, -100]) {
+        let lat = 0.2;
+        const t0 = at(startMin).getTime();
+        for (let i = 0; i <= 12; i++) {
+          await send(gps({ date: new Date(t0 + i * 5000), lat, lon: 100.2, speed: i === 12 ? 0 : 36 }));
+          lat += 50 / M;
+        }
+      }
+      await waitFor(async () => (await q('SELECT 1 FROM positions WHERE recorded_at < $1', [at(-90)])).length === 26);
+      const r = await trips(win());
+      assert.equal(r.status, 200);
+      const j = await r.json();
+      assert.equal(j.summary.tripCount, 2);
+      assert.equal(j.stops.length, 1);
+      assert.ok(Math.abs(j.summary.distanceMeters - 1200) < 20, `jarak ${j.summary.distanceMeters}`); // 2 x 12 hop x 50 m
+      assert.equal(j.summary.drivingSeconds, 120);
+      assert.equal(j.summary.maxSpeedKmh, 36);
+      assert.equal(j.status.state, 'stopped');
+      assert.equal(j.truncated, false);
+      assert.equal(j.stops[0].durationSeconds, 20 * 60 - 60);
+    });
+
+    it('menolak tanpa token, token palsu, dan token admin', async () => {
+      assert.equal((await trips(win(), null)).status, 401);
+      assert.equal((await trips(win(), 'gt06_palsu')).status, 401);
+      const r = await fetch(`${base_url}/api/admin/tokens`, {
+        method: 'POST', headers: { Authorization: basic, 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'adm', scope: 'admin' }),
+      });
+      assert.equal((await trips(win(), (await r.json()).token)).status, 401);
+    });
+
+    it('validasi parameter: imei, tanggal, rentang, stop_seconds; hanya GET', async () => {
+      const f = encodeURIComponent(at(-130).toISOString());
+      assert.equal((await trips('')).status, 400);
+      assert.equal((await trips("imei=1';DROP TABLE positions;--")).status, 400);
+      assert.equal((await trips(`imei=${IMEI}&from=bukan-tanggal`)).status, 400);
+      assert.equal((await trips(`imei=${IMEI}&from=${f}&to=${encodeURIComponent(at(-200).toISOString())}`)).status, 400);
+      assert.equal((await trips(`imei=${IMEI}&from=2020-01-01T00:00:00Z&to=2026-01-01T00:00:00Z`)).status, 400);
+      assert.equal((await trips(`${win()}&stop_seconds=5`)).status, 400);
+      assert.equal((await trips(`${win()}&stop_seconds=abc`)).status, 400);
+      assert.equal((await trips(`${win()}&stop_seconds=600`)).status, 200);
+      const r = await fetch(`${base_url}/api/external/trips?${win()}`, { method: 'POST', headers: { Authorization: `Bearer ${extToken}` } });
+      assert.equal(r.status, 405);
+    });
+
+    it('stop_seconds besar menggabungkan dua perjalanan menjadi satu', async () => {
+      const j = await (await trips(`${win()}&stop_seconds=3600`)).json();
+      assert.equal(j.summary.tripCount, 1);
+    });
+
+    it('perangkat tanpa data mengembalikan ringkasan kosong, bukan error', async () => {
+      const j = await (await trips(`imei=490154203237518&from=${encodeURIComponent(at(-130).toISOString())}&to=${encodeURIComponent(at(-60).toISOString())}`)).json();
+      assert.equal(j.summary.tripCount, 0);
+      assert.equal(j.status.state, 'unknown');
+    });
   });
 });

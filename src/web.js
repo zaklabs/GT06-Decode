@@ -11,6 +11,7 @@ const tokens = require('./tokens');
 const db = require('./db');
 const auth = require('./auth');
 const adminApi = require('./adminApi');
+const trips = require('./trips');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -19,6 +20,17 @@ const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 
 const MAX_POSITIONS_LIMIT = 20000;
 const DEFAULT_POSITIONS_LIMIT = 5000;
+
+// Ringkasan perjalanan: rentang maksimal dan batas titik yang dibaca per permintaan.
+const MAX_TRIPS_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+const MAX_TRIPS_POINTS = 100000;
+const TRIP_STOP_SECONDS = clampInt(process.env.GT06_TRIP_STOP_SECONDS, 30, 3600, trips.DEFAULTS.stopSeconds);
+const TRIP_MIN_SPEED_KMH = clampInt(process.env.GT06_TRIP_MIN_SPEED_KMH, 1, 30, trips.DEFAULTS.minSpeedKmh);
+
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+}
 
 /** Parse tanggal query string; null kalau tidak valid. */
 function parseDateParam(value) {
@@ -168,6 +180,42 @@ function handlePositions(res, url) {
     });
 }
 
+/** Ringkasan perjalanan, perhentian, jarak, dan jam tempuh satu device (dihitung dari tabel positions). */
+function handleTrips(res, url) {
+  const imei = url.searchParams.get('imei');
+  if (!imei) return sendJson(res, 400, { error: 'Parameter imei wajib diisi' });
+  if (!IMEI_RE.test(imei)) return sendJson(res, 400, { error: 'Parameter imei tidak valid' });
+
+  const fromRaw = url.searchParams.get('from');
+  const toRaw = url.searchParams.get('to');
+  const from = fromRaw ? parseDateParam(fromRaw) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const to = toRaw ? parseDateParam(toRaw) : new Date();
+  if (!from) return sendJson(res, 400, { error: 'Parameter from bukan tanggal yang valid' });
+  if (!to) return sendJson(res, 400, { error: 'Parameter to bukan tanggal yang valid' });
+  if (to < from) return sendJson(res, 400, { error: 'Parameter to harus setelah from' });
+  if (to - from > MAX_TRIPS_RANGE_MS) return sendJson(res, 400, { error: 'Rentang waktu maksimal 31 hari' });
+
+  const stopRaw = url.searchParams.get('stop_seconds');
+  const stopSeconds = stopRaw === null ? TRIP_STOP_SECONDS : clampInt(stopRaw, 30, 3600, null);
+  if (stopSeconds === null) return sendJson(res, 400, { error: 'Parameter stop_seconds harus bilangan bulat 30-3600' });
+
+  db.getPositions({ imei, from: from.toISOString(), to: to.toISOString(), limit: MAX_TRIPS_POINTS })
+    .then((rows) => {
+      const options = { stopSeconds, minSpeedKmh: TRIP_MIN_SPEED_KMH };
+      const result = trips.computeTrips(rows, options);
+      sendJson(res, 200, {
+        imei,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        params: options,
+        ...result,
+        status: trips.currentStatus(rows, result.trips, Date.now(), options),
+        truncated: rows.length >= MAX_TRIPS_POINTS,
+      });
+    })
+    .catch((err) => sendServerError(res, 'Gagal hitung ringkasan perjalanan', err));
+}
+
 function handleExternal(req, res, url, pathname) {
   if (req.method !== 'GET') {
     res.writeHead(405).end();
@@ -181,6 +229,7 @@ function handleExternal(req, res, url, pathname) {
 
       if (pathname === '/api/external/devices') return sendJson(res, 200, getDevices());
       if (pathname === '/api/external/events') return streamEvents(req, res, { includeLogs: false });
+      if (pathname === '/api/external/trips') return handleTrips(res, url);
       // Riwayat posisi (histori) per device -- dipakai fitur playback rute.
       return handlePositions(res, url);
     })
@@ -209,7 +258,8 @@ function start() {
     if (
       pathname === '/api/external/devices' ||
       pathname === '/api/external/events' ||
-      pathname === '/api/external/positions'
+      pathname === '/api/external/positions' ||
+      pathname === '/api/external/trips'
     ) {
       handleExternal(req, res, url, pathname);
       return;

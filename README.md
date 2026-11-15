@@ -114,6 +114,8 @@ PGHOST=... PGUSER=gt06 PGPASSWORD=... PGDATABASE=gt06_test npm test
 | `GT06_MAX_CONNECTIONS` | `1000` | Batas koneksi TCP GT06 simultan |
 | `GT06_IMEI_ENFORCE` | `log` | Daftar IMEI yang diizinkan: `off` (tidak diperiksa), `log` (semua diterima, yang belum terdaftar dicatat di log), `on` (hanya IMEI terdaftar & aktif yang diterima; lainnya diputus). Lihat [Daftar IMEI](#daftar-imei-dan-api-admin) |
 | `GT06_MAX_BUFFER_BYTES` | `131072` | Batas sisa buffer per socket TCP (jaring pengaman) |
+| `GT06_TRIP_STOP_SECONDS` | `180` | Diam selama ini (detik, 30-3600) memisahkan dua perjalanan di `/api/external/trips`. Bisa ditimpa per permintaan dengan `stop_seconds` |
+| `GT06_TRIP_MIN_SPEED_KMH` | `3` | Kecepatan di bawah ini (km/jam, 1-30) dianggap diam |
 | `GT06_LOGIN_TIMEOUT_MS` | `60000` | Koneksi TCP yang tidak mengirim paket LOGIN dalam waktu ini diputus |
 
 Untuk `docker-compose.yml`, port host bisa diubah lewat env di luar container, contoh:
@@ -140,6 +142,7 @@ Tab **"Akses API"** di dashboard web dipakai untuk membuat/menghapus token yang 
 - `GET /api/external/devices` — snapshot JSON semua device saat ini
 - `GET /api/external/events` — SSE, event `device` dikirim realtime tiap ada posisi/status baru. Hanya event `device` yang dikirim (log operasional dashboard internal tidak ikut).
 - `GET /api/external/positions?imei=&from=&to=&limit=` — riwayat posisi satu device (default 24 jam terakhir, `limit` default 5000, maks 20000). `imei` wajib (hex/digit, maks 20 karakter); `from`/`to` harus tanggal valid (disarankan ISO 8601 dengan zona waktu, mis. `2026-01-01T00:00:00+07:00`). Parameter tidak valid → `400`.
+- `GET /api/external/trips?imei=&from=&to=&stop_seconds=` — ringkasan perjalanan satu device, dihitung dari riwayat posisi: `summary` (`tripCount`, `distanceMeters` = total tempuh, `drivingSeconds` = jam tempuh, `stoppedSeconds`, `maxSpeedKmh`, `avgSpeedKmh`), daftar `trips` (awal/akhir, durasi, jarak, kecepatan, posisi awal/akhir), daftar `stops` (perhentian di antara dua perjalanan), dan `status` (`moving`/`stopped`/`unknown` + `since`). Default 24 jam terakhir, rentang maksimal 31 hari. Perjalanan baru dimulai saat kendaraan bergerak (>= `GT06_TRIP_MIN_SPEED_KMH`) dan berakhir setelah diam >= `stop_seconds`. Hari kalender WIB ditentukan pemanggil lewat `from`/`to` (mis. `2026-11-15T00:00:00+07:00` s.d. `2026-11-16T00:00:00+07:00`). `truncated: true` bila data melebihi 100.000 titik.
 
 Semuanya wajib header `Authorization: Bearer <token>`, request tanpa token atau dengan token yang salah/sudah dihapus akan dapat `401`.
 
@@ -193,6 +196,7 @@ curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' \
 5. Konsumen `/api/external/events` kini hanya menerima event `device` (sebelumnya juga `log`/`clear`). Kalau ada konsumen yang bergantung pada event `log`, sesuaikan.
 6. `npm run reload-devices` di dalam container otomatis memakai `ADMIN_USER`/`ADMIN_PASSWORD` dari env container.
 7. **Update yang menambah daftar IMEI & API admin:** `docker compose up -d --build` lalu server menjalankan migrasi 001-003 sendiri saat start (data lama aman; token lama otomatis berscope `external`). Mode awal `GT06_IMEI_ENFORCE=log` tidak menolak perangkat mana pun. Mount `db/schema.sql` ke container Postgres dihapus dari `docker-compose.yml`, karena skema kini dikelola migrasi.
+8. **Update posisi terakhir, alarm, dan perjalanan:** migrasi `004` berjalan otomatis saat start. **Migrasi ini menghapus baris `positions` yang duplikat** (`imei` dan `recorded_at` sama; yang `id`-nya terkecil dipertahankan) sebelum memasang `UNIQUE`. Buat backup dulu (`docker compose exec gt06-postgres pg_dump ...` atau backup bulanan bawaan). Setelah itu: posisi terakhir tidak lagi tertimpa titik lama, titik tanpa fix GPS atau berjam lebih dari 10 menit di masa depan tidak disimpan, alarm masuk tabel `alarms`, dan `/api/external/trips` tersedia (tambahan, tidak mengubah endpoint lama). `npm test` kini menjalankan file tes berurutan karena tes integrasi berbagi satu database.
 
 ## Konfigurasi perangkat GT06 (SMS command)
 
