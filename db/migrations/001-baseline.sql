@@ -1,6 +1,6 @@
--- Skema database GT06 Decode.
--- File ini otomatis dijalankan oleh image resmi PostgreSQL saat container pertama kali
--- dibuat (lewat /docker-entrypoint-initdb.d/), jadi tidak perlu migrasi manual.
+-- Migrasi 001: skema dasar GT06 Decode.
+-- Idempoten (IF NOT EXISTS) sehingga aman dijalankan di database lama yang sudah dibuat
+-- lewat schema.sql versi sebelumnya. Dijalankan otomatis oleh src/migrate.js saat server start.
 
 CREATE TABLE IF NOT EXISTS devices (
   imei            VARCHAR(20) PRIMARY KEY,
@@ -53,3 +53,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_used_at  TIMESTAMPTZ
 );
+
+-- Kolom yang ditambahkan setelah versi pertama (sebelumnya harus di-ALTER manual).
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS voltage_level SMALLINT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS gsm_signal_strength SMALLINT;

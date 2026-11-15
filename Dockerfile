@@ -12,6 +12,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY src ./src
 COPY public ./public
+COPY db ./db
 COPY scripts ./scripts
 
 # Jalankan sebagai user non-root

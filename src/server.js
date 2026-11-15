@@ -205,13 +205,29 @@ server.on('error', (err) => {
   log('error', `[!] Server error: ${err.message}`);
 });
 
-server.listen(PORT, HOST, () => {
-  log('info', `GT06 TCP server listening on ${HOST}:${PORT}`);
-});
+const migrate = require('./migrate');
 
-require('./web').start();
-db.startRetentionSchedule();
-require('./backup').startBackupSchedule();
+async function main() {
+  // Beri migrasi kesempatan selesai dulu (maks 15 detik) supaya API tidak menyentuh skema
+  // lama, tetapi jangan menahan penerimaan TCP kalau database sedang tidak siap -- migrasi
+  // terus dicoba ulang di latar belakang (lihat src/migrate.js).
+  let timer;
+  await Promise.race([
+    migrate.runWithRetry(),
+    new Promise((resolve) => { timer = setTimeout(resolve, 15000); }),
+  ]);
+  clearTimeout(timer);
+
+  server.listen(PORT, HOST, () => {
+    log('info', `GT06 TCP server listening on ${HOST}:${PORT}`);
+  });
+
+  require('./web').start();
+  db.startRetentionSchedule();
+  require('./backup').startBackupSchedule();
+}
+
+main();
 
 function shutdown(signal) {
   log('info', `[i] Menerima ${signal}, menutup server...`);

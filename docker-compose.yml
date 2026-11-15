@@ -9,7 +9,6 @@ services:
       POSTGRES_PASSWORD: ${PGPASSWORD:?Set PGPASSWORD di file .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-gt06} -d ${PGDATABASE:-gt06}"]
       interval: 10s
