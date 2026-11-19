@@ -50,14 +50,14 @@ function parseLabel(input) {
 
 // ---------- cache ----------
 
-const cache = new Map(); // imei -> enabled (boolean)
+const cache = new Map(); // imei -> { enabled: boolean, label: string }
 let cacheLoaded = false;
 const events = new EventEmitter(); // 'changed' setiap cache diperbarui
 
 async function refreshCache() {
-  const { rows } = await pool.query('SELECT imei, enabled FROM registered_devices');
+  const { rows } = await pool.query('SELECT imei, enabled, label FROM registered_devices');
   cache.clear();
-  for (const row of rows) cache.set(row.imei, row.enabled);
+  for (const row of rows) cache.set(row.imei, { enabled: row.enabled, label: row.label });
   cacheLoaded = true;
   events.emit('changed');
 }
@@ -66,7 +66,16 @@ async function refreshCache() {
 function statusOf(imei) {
   if (!cacheLoaded) return 'unknown';
   if (!cache.has(imei)) return 'unregistered';
-  return cache.get(imei) ? 'registered' : 'disabled';
+  return cache.get(imei).enabled ? 'registered' : 'disabled';
+}
+
+/**
+ * Untuk API eksternal: `registered` = ada di daftar DAN aktif; `label` = label dari daftar
+ * (juga untuk yang dinonaktifkan), atau null bila tidak ada di daftar / cache belum termuat.
+ */
+function describe(imei) {
+  const entry = cache.get(imei);
+  return { registered: !!entry && entry.enabled === true, label: entry ? entry.label : null };
 }
 
 function start() {
@@ -168,6 +177,6 @@ function stats() {
 }
 
 module.exports = {
-  MODE, events, start, statusOf, evaluateLogin, parseImei, parseLabel,
+  MODE, events, start, statusOf, describe, evaluateLogin, parseImei, parseLabel,
   list, create, update, remove, importSeen, stats,
 };

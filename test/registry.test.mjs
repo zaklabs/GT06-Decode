@@ -38,3 +38,7 @@ test('evaluateLogin: sebelum cache termuat statusnya "unknown" (mode on menolak,
   assert.equal(verdict.status, 'unknown');
   assert.equal(verdict.allow, registry.MODE !== 'on');
 });
+
+test('describe: sebelum cache termuat registered=false dan label=null', () => {
+  assert.deepEqual(registry.describe('352099001761481'), { registered: false, label: null });
+});

@@ -12,6 +12,7 @@ const db = require('./db');
 const auth = require('./auth');
 const adminApi = require('./adminApi');
 const trips = require('./trips');
+const registry = require('./registry');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -216,6 +217,10 @@ function handleTrips(res, url) {
     .catch((err) => sendServerError(res, 'Gagal hitung ringkasan perjalanan', err));
 }
 
+// Tambahan field untuk konsumen eksternal (additive): registered (ada di daftar IMEI dan aktif)
+// dan label (dari daftar IMEI, atau null), supaya aplikasi lain tidak perlu token admin untuk itu.
+const withRegistry = (device) => ({ ...device, ...registry.describe(device.imei) });
+
 function handleExternal(req, res, url, pathname) {
   if (req.method !== 'GET') {
     res.writeHead(405).end();
@@ -227,8 +232,8 @@ function handleExternal(req, res, url, pathname) {
       // Hanya token ber-scope "external"; token "admin" (untuk /api/admin/*) tidak berlaku di sini.
       if (!verified || verified.scope !== 'external') return sendJson(res, 401, { error: 'Token tidak valid atau hilang' });
 
-      if (pathname === '/api/external/devices') return sendJson(res, 200, getDevices());
-      if (pathname === '/api/external/events') return streamEvents(req, res, { includeLogs: false });
+      if (pathname === '/api/external/devices') return sendJson(res, 200, getDevices().map(withRegistry));
+      if (pathname === '/api/external/events') return streamEvents(req, res, { includeLogs: false, decorate: withRegistry });
       if (pathname === '/api/external/trips') return handleTrips(res, url);
       // Riwayat posisi (histori) per device -- dipakai fitur playback rute.
       return handlePositions(res, url);

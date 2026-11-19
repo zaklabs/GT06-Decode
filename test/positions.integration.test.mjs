@@ -217,4 +217,37 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
       assert.equal(j.status.state, 'unknown');
     });
   });
+
+  describe('GET /api/external/devices: field registered dan label (additive)', () => {
+    const devices = async () => (await (await fetch(`${base_url}/api/external/devices`, { headers: { Authorization: `Bearer ${extToken}` } })).json());
+    const admin = (path, method, body) => fetch(`${base_url}/api/admin/${path}`, {
+      method, headers: { Authorization: basic, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    });
+    const mine = async () => (await devices()).find((d) => d.imei === IMEI);
+
+    it('IMEI belum terdaftar: registered=false, label=null; field lama tetap ada', async () => {
+      const d = await mine();
+      assert.ok(d, 'perangkat uji harus muncul');
+      assert.equal(d.registered, false);
+      assert.equal(d.label, null);
+      for (const k of ['imei', 'connected', 'latitude', 'longitude', 'speed', 'gpsTimestamp', 'lastSeen']) assert.ok(k in d, `field lama hilang: ${k}`);
+    });
+
+    it('terdaftar dan aktif: registered=true dengan label; nonaktif: registered=false tetapi label tetap; dihapus: kembali null', async () => {
+      assert.equal((await admin('registry', 'POST', { imei: IMEI, label: 'Mobil Uji' })).status, 201);
+      let d = await mine();
+      assert.equal(d.registered, true);
+      assert.equal(d.label, 'Mobil Uji');
+
+      assert.equal((await admin(`registry/${IMEI}`, 'PATCH', { enabled: false })).status, 200);
+      d = await mine();
+      assert.equal(d.registered, false);
+      assert.equal(d.label, 'Mobil Uji');
+
+      assert.equal((await admin(`registry/${IMEI}`, 'DELETE')).status, 204);
+      d = await mine();
+      assert.equal(d.registered, false);
+      assert.equal(d.label, null);
+    });
+  });
 });

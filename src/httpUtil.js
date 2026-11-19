@@ -64,7 +64,7 @@ function isCrossSiteWrite(req) {
  * API eksternal (`includeLogs: false`) hanya menerima `device` -- log operasional
  * (IP device, error DB, dsb.) tidak dibagikan ke aplikasi lain.
  */
-function streamEvents(req, res, { includeLogs = true } = {}) {
+function streamEvents(req, res, { includeLogs = true, decorate = (d) => d } = {}) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
@@ -79,11 +79,11 @@ function streamEvents(req, res, { includeLogs = true } = {}) {
     }
   }
   for (const device of getDevices()) {
-    res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
+    res.write(`event: device\ndata: ${JSON.stringify(decorate(device))}\n\n`);
   }
 
   const onLog = (entry) => res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
-  const onDevice = (device) => res.write(`event: device\ndata: ${JSON.stringify(device)}\n\n`);
+  const onDevice = (device) => res.write(`event: device\ndata: ${JSON.stringify(decorate(device))}\n\n`);
   const onClear = () => res.write('event: clear\ndata: {}\n\n');
 
   if (includeLogs) {
