@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+process.env.TIMEZONE = 'Asia/Jakarta'; // frame uji berisi jam GMT+7; jangan ikut env pengembang
 const { decodeFrame } = require('../src/parser');
 const { crc16X25 } = require('../src/crc');
 

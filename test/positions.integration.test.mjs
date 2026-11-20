@@ -80,7 +80,7 @@ describe('penyimpanan posisi dan alarm', { skip }, () => {
     const adminPassword = crypto.randomBytes(12).toString('hex');
     basic = 'Basic ' + Buffer.from(`admin:${adminPassword}`).toString('base64');
     child = spawn(process.execPath, ['src/server.js'], {
-      env: { ...process.env, GT06_PORT: String(tcp), GT06_HOST: '127.0.0.1', WEB_PORT: String(web), WEB_HOST: '127.0.0.1', ADMIN_USER: 'admin', ADMIN_PASSWORD: adminPassword, BACKUP: 'off', GT06_IMEI_ENFORCE: 'off' },
+      env: { ...process.env, GT06_PORT: String(tcp), GT06_HOST: '127.0.0.1', WEB_PORT: String(web), WEB_HOST: '127.0.0.1', ADMIN_USER: 'admin', ADMIN_PASSWORD: adminPassword, BACKUP: 'off', GT06_IMEI_ENFORCE: 'off', TIMEZONE: 'Asia/Jakarta' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await new Promise((resolve, reject) => {

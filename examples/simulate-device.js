@@ -19,6 +19,7 @@
 
 const net = require('net');
 const { crc16X25 } = require('../src/crc');
+const { TIMEZONE, wallClock } = require('../src/timezone');
 
 function parseArgs(argv) {
   const args = {};
@@ -73,18 +74,11 @@ function buildLoginFrame(imei) {
 }
 
 function buildGpsFrame(lat, lon, speedKmh) {
-  // Device di lapangan mengirim jam LOKAL (Asia/Jakarta, GMT+7), bukan UTC -- simulator
-  // ikut meniru itu (lihat DEVICE_TZ_OFFSET_HOURS di src/parser.js) supaya data hasil
+  // Device di lapangan mengirim jam LOKAL (zona TIMEZONE, default Asia/Jakarta), bukan UTC --
+  // simulator ikut meniru itu (lihat decodeDateTime di src/parser.js) supaya data hasil
   // simulasi merepresentasikan device asli dengan benar.
-  const now = new Date(Date.now() + 7 * 60 * 60 * 1000);
-  const dateTime = Buffer.from([
-    now.getUTCFullYear() - 2000,
-    now.getUTCMonth() + 1,
-    now.getUTCDate(),
-    now.getUTCHours(),
-    now.getUTCMinutes(),
-    now.getUTCSeconds(),
-  ]);
+  const [yy, mo, dd, hh, mi, ss] = wallClock(new Date(), TIMEZONE);
+  const dateTime = Buffer.from([yy - 2000, mo, dd, hh, mi, ss]);
   const gpsInfoByte = Buffer.from([0xc0 | 9]); // 9 satelit terkunci
   const latRaw = Math.round(Math.abs(lat) * 30000 * 60);
   const lonRaw = Math.round(Math.abs(lon) * 30000 * 60);

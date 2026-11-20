@@ -5,7 +5,9 @@ WORKDIR /app
 # pg_dump dipakai untuk backup terjadwal (lihat src/backup.js)
 # tzdata dipakai supaya TZ di bawah benar-benar berlaku (Alpine gak punya timezone data bawaan)
 RUN apk add --no-cache postgresql16-client tzdata
+# TZ default; docker-compose menimpanya dari TIMEZONE, dan aplikasi menyetelnya sendiri dari TIMEZONE
 ENV TZ=Asia/Jakarta
+ENV TIMEZONE=Asia/Jakarta
 
 COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund

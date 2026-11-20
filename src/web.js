@@ -13,6 +13,7 @@ const auth = require('./auth');
 const adminApi = require('./adminApi');
 const trips = require('./trips');
 const registry = require('./registry');
+const { TIMEZONE } = require('./timezone');
 
 const WEB_PORT = process.env.WEB_PORT ? Number(process.env.WEB_PORT) : 8080;
 const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -131,7 +132,8 @@ function handleAdmin(req, res, pathname) {
         return;
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(content);
+      // TIMEZONE sudah divalidasi (nama IANA) saat start, aman disisipkan ke HTML/JS.
+      res.end(content.toString('utf8').split('__TIMEZONE__').join(TIMEZONE));
     });
     return;
   }

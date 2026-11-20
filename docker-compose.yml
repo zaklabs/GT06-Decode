@@ -41,6 +41,10 @@ services:
       WEB_PORT: "8080" # port INTERNAL container, jangan diubah -- port host diatur lewat ports: di atas
       WEB_HOST: "0.0.0.0"
       NODE_ENV: production
+      # Zona waktu sistem (nama IANA). Penyimpanan & API tetap UTC; zona ini dipakai untuk
+      # membaca jam perangkat, tampilan dashboard web, dan jam proses (nama file backup).
+      TIMEZONE: ${TIMEZONE:-Asia/Jakarta}
+      TZ: ${TIMEZONE:-Asia/Jakarta}
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: ${PGDATABASE:-gt06}

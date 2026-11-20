@@ -236,7 +236,7 @@
       <table>
         <thead>
           <tr>
-            <th></th><th>IMEI</th><th>Posisi</th><th>Speed</th><th>Volt</th><th>GSM</th><th>Terakhir (WIB)</th>
+            <th></th><th>IMEI</th><th>Posisi</th><th>Speed</th><th>Volt</th><th>GSM</th><th>Terakhir (__TIMEZONE__)</th>
           </tr>
         </thead>
         <tbody id="deviceRows"></tbody>
@@ -281,7 +281,7 @@
     <h3 class="sub-title">Perangkat terdaftar</h3>
     <table>
       <thead>
-        <tr><th></th><th>IMEI</th><th>Label</th><th>Plat</th><th>Didaftarkan (WIB)</th><th></th></tr>
+        <tr><th></th><th>IMEI</th><th>Label</th><th>Plat</th><th>Didaftarkan (__TIMEZONE__)</th><th></th></tr>
       </thead>
       <tbody id="regRows"></tbody>
     </table>
@@ -290,7 +290,7 @@
     <h3 class="sub-title">Terdeteksi, belum terdaftar</h3>
     <table>
       <thead>
-        <tr><th></th><th>IMEI</th><th>Terakhir terlihat (WIB)</th><th></th></tr>
+        <tr><th></th><th>IMEI</th><th>Terakhir terlihat (__TIMEZONE__)</th><th></th></tr>
       </thead>
       <tbody id="unknownRows"></tbody>
     </table>
@@ -321,7 +321,7 @@
 
     <table class="tokens-table">
       <thead>
-        <tr><th>Label</th><th>Token</th><th>Dibuat (WIB)</th><th>Terakhir dipakai (WIB)</th><th></th></tr>
+        <tr><th>Label</th><th>Token</th><th>Dibuat (__TIMEZONE__)</th><th>Terakhir dipakai (__TIMEZONE__)</th><th></th></tr>
       </thead>
       <tbody id="tokenRows"></tbody>
     </table>
@@ -331,7 +331,7 @@
 
 <script>
 (function () {
-  var TZ = 'Asia/Jakarta'; // WIB -- tampilan waktu disamakan, tidak ikut timezone browser viewer
+  var TZ = '__TIMEZONE__'; // diisi server dari env TIMEZONE -- tampilan waktu disamakan, tidak ikut timezone browser viewer
   var logEl = document.getElementById('log');
   var statusDot = document.getElementById('statusDot');
   var statusLabel = document.getElementById('statusLabel');
