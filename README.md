@@ -240,6 +240,8 @@ Tabel utama (lihat [db/migrations/](db/migrations/); tabel `api_tokens` dan `reg
 
 **State device dimuat dari database saat server start** (`src/deviceState.js`): posisi terakhir, label, dan `lastSeen` tiap device langsung tersedia di dashboard web, `/api/devices`, dan `/api/external/devices` tanpa menunggu paket GPS berikutnya. Device hasil muat ditandai `connected: false` sampai benar-benar login, flag `is_online` basi di database direset, dan device yang sudah live tidak ditimpa. Setelah itu dashboard & API membaca dari memori; tabel `devices`/`positions` ditulis fire-and-forget untuk histori. Kalau database belum siap saat start, pemuatan dicoba ulang tiap 30 detik.
 
+**Login ulang IMEI yang sama:** saat sebuah IMEI login lagi, koneksi lama untuk IMEI itu diputus server (koneksi GPRS sering setengah-mati dan baru terdeteksi setelah keepalive menyerah). Status `connected` hanya menjadi `false` bila tidak ada lagi socket hidup untuk IMEI tersebut, jadi perangkat yang sudah pindah ke koneksi baru tidak berkedip Offline.
+
 Pemuatan ulang manual (mis. setelah restore database) tanpa restart server:
 
 ```bash

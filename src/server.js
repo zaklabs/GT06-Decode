@@ -64,6 +64,18 @@ function untrackSocket(imei, socket) {
   if (set.size === 0) socketsByImei.delete(imei);
 }
 
+/** Putuskan socket lama milik IMEI yang sama (mis. setengah-mati karena GPRS putus diam-diam). */
+function closeStaleSockets(imei, keep) {
+  const set = socketsByImei.get(imei);
+  if (!set) return;
+  for (const old of [...set]) {
+    if (old === keep) continue;
+    log('info', `[i] IMEI ${imei} login ulang, koneksi lama ${old.remoteAddress}:${old.remotePort} diputus`);
+    untrackSocket(imei, old);
+    old.destroy();
+  }
+}
+
 registry.events.on('changed', () => {
   if (registry.MODE !== 'on') return;
   for (const [imei, set] of socketsByImei) {
@@ -128,6 +140,7 @@ const server = net.createServer((socket) => {
         if (imei && imei !== v) untrackSocket(imei, socket);
         imei = v;
         trackSocket(v, socket);
+        closeStaleSockets(v, socket);
       }, () => imei);
     }
   });
@@ -138,6 +151,9 @@ const server = net.createServer((socket) => {
       log('info', `[-] Koneksi ditutup: ${remote} (imei: ${imei || 'unknown'})`);
       if (imei) {
         untrackSocket(imei, socket);
+        // Offline hanya bila tidak ada socket lain yang masih hidup untuk IMEI ini; kalau tidak,
+        // penutupan koneksi lama menandai perangkat yang sebenarnya online sebagai Offline.
+        if (socketsByImei.has(imei)) return;
         updateDevice(imei, { connected: false });
         db.setDeviceOffline(imei).catch((err) => log('error', `[DB] Gagal update status offline ${imei}: ${err.message}`));
       }
