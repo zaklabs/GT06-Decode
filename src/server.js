@@ -302,6 +302,7 @@ async function main() {
 
   require('./web').start();
   registry.start();
+  require('./deviceState').startLoadDevices(db);
   db.startRetentionSchedule();
   require('./backup').startBackupSchedule();
 }

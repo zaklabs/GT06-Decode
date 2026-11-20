@@ -114,6 +114,7 @@ PGHOST=... PGUSER=gt06 PGPASSWORD=... PGDATABASE=gt06_test npm test
 | `GT06_MAX_CONNECTIONS` | `1000` | Batas koneksi TCP GT06 simultan |
 | `GT06_IMEI_ENFORCE` | `log` | Daftar IMEI yang diizinkan: `off` (tidak diperiksa), `log` (semua diterima, yang belum terdaftar dicatat di log), `on` (hanya IMEI terdaftar & aktif yang diterima; lainnya diputus). Lihat [Daftar IMEI](#daftar-imei-dan-api-admin) |
 | `GT06_MAX_BUFFER_BYTES` | `131072` | Batas sisa buffer per socket TCP (jaring pengaman) |
+| `TIMEZONE` | `Asia/Jakarta` | Zona waktu sistem (nama IANA). Database dan semua JSON API **tetap UTC**; zona ini dipakai untuk membaca jam di paket perangkat (jam lokal), tampilan dashboard web, dan nama file backup. Nilai salah = server menolak start |
 | `GT06_TRIP_STOP_SECONDS` | `180` | Diam selama ini (detik, 30-3600) memisahkan dua perjalanan di `/api/external/trips`. Bisa ditimpa per permintaan dengan `stop_seconds` |
 | `GT06_TRIP_MIN_SPEED_KMH` | `3` | Kecepatan di bawah ini (km/jam, 1-30) dianggap diam |
 | `GT06_LOGIN_TIMEOUT_MS` | `60000` | Koneksi TCP yang tidak mengirim paket LOGIN dalam waktu ini diputus |
@@ -237,9 +238,9 @@ Tabel utama (lihat [db/migrations/](db/migrations/); tabel `api_tokens` dan `reg
 
 > **Migrasi skema**: dikelola otomatis oleh [src/migrate.js](src/migrate.js). Saat server start, berkas `db/migrations/NNN-*.sql` yang belum tercatat di tabel `schema_migrations` dijalankan berurutan (satu transaksi per berkas, dengan advisory lock). Tidak perlu `ALTER` manual lagi. Jika database belum siap saat start, migrasi dicoba ulang tiap 30 detik tanpa menghentikan penerimaan TCP. Untuk menambah perubahan skema, buat berkas baru dengan nomor berikutnya dan tulis secara idempoten (`IF NOT EXISTS`).
 
-**Penting — dashboard & API TIDAK membaca dari database secara langsung.** Tabel `devices`/`positions` cuma ditulis (fire-and-forget) untuk histori/dashboard eksternal; dashboard web ini dan endpoint `/api/devices`, `/api/events`, `/api/external/devices`, `/api/external/events` menampilkan state di **memori proses** yang cuma terisi dari device yang benar-benar konek lewat TCP. Konsekuensinya: setelah restore data (mis. dari server produksi) atau restart server, dashboard akan tampak kosong sampai device asli konek lagi — walau datanya sudah ada di database.
+**State device dimuat dari database saat server start** (`src/deviceState.js`): posisi terakhir, label, dan `lastSeen` tiap device langsung tersedia di dashboard web, `/api/devices`, dan `/api/external/devices` tanpa menunggu paket GPS berikutnya. Device hasil muat ditandai `connected: false` sampai benar-benar login, flag `is_online` basi di database direset, dan device yang sudah live tidak ditimpa. Setelah itu dashboard & API membaca dari memori; tabel `devices`/`positions` ditulis fire-and-forget untuk histori. Kalau database belum siap saat start, pemuatan dicoba ulang tiap 30 detik.
 
-Kalau perlu langsung menampilkan data yang ada di database (tanpa menunggu device live), jalankan:
+Pemuatan ulang manual (mis. setelah restore database) tanpa restart server:
 
 ```bash
 docker compose exec gt06-server npm run reload-devices
@@ -264,4 +265,4 @@ docker compose exec gt06-server pg_restore -h postgres -U gt06 -d gt06 --clean -
 ## Catatan pengembangan
 
 - Layout byte Alarm (`0x16`) mengikuti layout GPS standar; posisi byte terminal-info/alarm-type di akhir bisa berbeda tergantung firmware — sesuaikan bila punya sample paket real dari device yang dipakai.
-- **Field jam di paket GPS/LBS device armada ini adalah jam LOKAL (Asia/Jakarta, GMT+7), bukan UTC** seperti asumsi standar kebanyakan implementasi GT06 — lihat `DEVICE_TZ_OFFSET_HOURS` di [src/parser.js](src/parser.js). Kalau nanti ada device dari vendor/konfigurasi lain yang justru kirim UTC asli, field ini perlu disesuaikan per-device (saat ini hardcode berlaku untuk semua device).
+- **Field jam di paket GPS/LBS device armada ini adalah jam LOKAL (Asia/Jakarta, GMT+7), bukan UTC** seperti asumsi standar kebanyakan implementasi GT06 — zonanya diatur lewat env `TIMEZONE` (default Asia/Jakarta, lihat [src/timezone.js](src/timezone.js)); hasilnya disimpan sebagai UTC. Kalau nanti ada device dari vendor/konfigurasi lain yang justru kirim UTC asli, field ini perlu disesuaikan per-device (saat ini satu `TIMEZONE` berlaku untuk semua device).

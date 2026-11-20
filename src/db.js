@@ -106,6 +106,11 @@ async function recordAlarm({ imei, alarmType, hasFix, latitude, longitude, speed
   });
 }
 
+/** Dipanggil saat server start: tidak ada socket hidup, jadi semua device pasti belum online. */
+async function setAllDevicesOffline() {
+  await pool.query('UPDATE devices SET is_online = false WHERE is_online');
+}
+
 /** Dipakai script reload-devices -- ambil state terakhir semua device dari DB. */
 async function getAllDevices() {
   const { rows } = await pool.query(
@@ -161,6 +166,7 @@ module.exports = {
   recordPosition,
   recordAlarm,
   getAllDevices,
+  setAllDevicesOffline,
   getPositions,
   pruneOldPositions,
   startRetentionSchedule,
